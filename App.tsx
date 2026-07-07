@@ -1,76 +1,65 @@
-import { count } from 'drizzle-orm';
-import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
-import migrations from './drizzle/migrations';
-import { db } from './src/db/client';
-import { devSeedFromFixtures } from './src/db/devSeed';
-import { ingestSets } from './src/db/ingest';
-import { cards, sets } from './src/db/schema';
+import { useDbReady } from './src/db/hooks';
+import { BinderListScreen } from './src/features/binders/BinderListScreen';
+import { BinderScreen } from './src/features/binders/BinderScreen';
+import { PickerCardsScreen } from './src/features/cards/PickerCardsScreen';
+import { PickerSetsScreen } from './src/features/cards/PickerSetsScreen';
+import type { RootStackParamList } from './src/navigation/types';
+
+const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const { success, error } = useMigrations(db, migrations);
-  const [counts, setCounts] = useState<{ sets: number; cards: number }>();
-
-  useEffect(() => {
-    if (!success) return;
-    let cancelled = false;
-
-    const refreshCounts = async () => {
-      const [[setCount], [cardCount]] = await Promise.all([
-        db.select({ n: count() }).from(sets),
-        db.select({ n: count() }).from(cards),
-      ]);
-      if (!cancelled) setCounts({ sets: setCount.n, cards: cardCount.n });
-    };
-
-    (async () => {
-      if (__DEV__) {
-        await devSeedFromFixtures(db).catch((e) =>
-          console.warn('dev seed failed', e),
-        );
-      }
-      await refreshCounts();
-      // Background catalog refresh; offline failure is fine — the UI runs
-      // entirely from SQLite and retries on next launch.
-      await ingestSets(db).catch(() => {});
-      await refreshCounts();
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [success]);
+  const { ready, error } = useDbReady();
 
   if (error) {
     return (
-      <View style={styles.container}>
+      <View style={styles.gate}>
         <Text>Database migration failed: {error.message}</Text>
       </View>
     );
   }
+  if (!ready) {
+    return <View style={styles.gate} />;
+  }
 
   return (
-    <View style={styles.container}>
-      <Text>PokéBinder — M0</Text>
-      <Text>
-        {counts
-          ? `${counts.sets} sets, ${counts.cards} cards in SQLite`
-          : 'preparing database…'}
-      </Text>
+    <GestureHandlerRootView style={styles.root}>
+      <NavigationContainer>
+        <Stack.Navigator initialRouteName="BinderList">
+          <Stack.Screen
+            name="BinderList"
+            component={BinderListScreen}
+            options={{ title: 'PokéBinder' }}
+          />
+          <Stack.Screen name="Binder" component={BinderScreen} />
+          <Stack.Screen
+            name="PickerSets"
+            component={PickerSetsScreen}
+            options={{ title: 'Add card', presentation: 'modal' }}
+          />
+          <Stack.Screen
+            name="PickerCards"
+            component={PickerCardsScreen}
+            options={{ title: 'Pick a card' }}
+          />
+        </Stack.Navigator>
+      </NavigationContainer>
       <StatusBar style="auto" />
-    </View>
+    </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: { flex: 1 },
+  gate: {
     flex: 1,
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
   },
 });
