@@ -6,6 +6,7 @@ import {
   FlatList,
   Pressable,
   StyleSheet,
+  Switch,
   Text,
   useWindowDimensions,
   View,
@@ -13,7 +14,7 @@ import {
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { runOnJS, useSharedValue } from 'react-native-reanimated';
 
-import { addPages, touchBinder } from '../../db/binders';
+import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
 import { clearSlot, swapSlotContents } from '../../db/slots';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
@@ -276,6 +277,15 @@ export function BinderScreen({ route, navigation }: Props) {
         <Text style={styles.pageIndicator}>
           Page {Math.min(currentPage + 1, pages.length)} / {pages.length}
         </Text>
+        <View style={styles.stackingRow}>
+          <Text style={styles.stackingLabel}>Stack duplicates</Text>
+          <Switch
+            value={binder.variantStacking}
+            onValueChange={(value) =>
+              void updateBinder(db, binderId, { variantStacking: value })
+            }
+          />
+        </View>
       </View>
 
       {dragging && (
@@ -302,8 +312,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     padding: PAGE_PADDING,
   },
-  footer: { alignItems: 'center', paddingBottom: 24 },
+  footer: { alignItems: 'center', paddingBottom: 16, gap: 8 },
   pageIndicator: { color: '#78909c', fontSize: 13 },
+  stackingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  stackingLabel: { color: '#546e7a', fontSize: 13 },
   moveBanner: {
     flexDirection: 'row',
     alignItems: 'center',
