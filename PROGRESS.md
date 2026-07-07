@@ -6,73 +6,102 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M0 COMPLETE — next up: M1 plan (awaiting user approval before implementing)
+## Status: M1 code complete (not yet smoke-tested on simulator) — next: M2 plan (needs user approval)
 
 ## Approved decisions (user-confirmed)
 
-- **Schema additions beyond CLAUDE.md's core model**: `sets` table and
-  `cards.national_pokedex_numbers` (needed for browse-by-set, checklists,
-  pokedex sort).
-- **Ingestion strategy**: per-set on demand. Full sets catalog (~173 rows)
-  ingested in background at launch; a set's cards fetched once when first
-  needed, then offline forever (`sets.cards_ingested_at` marks completion).
+- **Schema additions**: `sets` table and `cards.national_pokedex_numbers`.
+- **Ingestion**: per-set on demand. Sets catalog (~173 rows) refreshes in
+  background at launch; a set's cards fetched once when first browsed
+  (`sets.cards_ingested_at` marks done), offline afterwards.
+- **Navigation**: React Navigation (native stack), per user choice.
+- **M1 plan approved** (2026-07-07): logic-first order, then binder list,
+  picker, spread view, dnd, stacking, page-turn.
 
 ## Notable deviations / environment facts
 
-- **Reanimated 4.5, not 3** (CLAUDE.md says 3): Expo SDK 57 / RN 0.86 pairs
-  with Reanimated 4; v3 is incompatible with RN 0.86. Worklets API unchanged
-  (`react-native-worklets` 0.10 present). Flagged, not yet user-ratified.
+- **Reanimated 4.5, not 3** (CLAUDE.md says 3): SDK 57 / RN 0.86 requires
+  v4; worklets API unchanged. Flagged to user, not objected so far.
 - Expo SDK 57, RN 0.86, React 19.2, TS 6.0, drizzle-orm 0.45, jest-expo 57.
-- TS 6 needed explicit `"types": ["jest", "node"]` in tsconfig.
+- TS 6 needs explicit `"types": ["jest", "node"]` in tsconfig.
 - Drizzle `.sql` migrations bundle via `babel-plugin-inline-import` +
-  `metro.config.js` sourceExts + `babel-preset-expo` as direct devDependency
-  (SDK 57 templates omit babel.config.js; creating one requires the preset).
-- Project dir name has spaces → create-expo-app was run in a temp dir and
-  moved in. The scaffold's initial commit contains a clobbered CLAUDE.md;
-  restored in the next commit (7dab45c).
+  metro sourceExts + `babel-preset-expo` as direct devDependency.
+- Project dir name has spaces → scaffold was created in temp dir and moved;
+  scaffold's initial commit has a clobbered CLAUDE.md (restored in 7dab45c).
+- `npx expo export --platform ios` used as bundle smoke test throughout.
 
 ## M0 — done
 
-- Scaffold: Expo blank-typescript template, strict TS, deps installed,
-  Jest via jest-expo (`npm test`), scripts: `test`, `typecheck`.
-- Schema `src/db/schema.ts`: binders, pages, slots, cards, collection
-  (per CLAUDE.md) + sets. JSON-in-text columns (`types`, `variants`,
-  `national_pokedex_numbers`, `visual_theme`) via drizzle json mode.
-  Unique indexes: (binder_id, page_index), (page_id, slot_index);
-  collection PK (card_id, variant); FK cascades binder→pages→slots.
-- Migrations: `drizzle/0000_flimsy_plazm.sql`, applied at startup via
-  `useMigrations` in App.tsx. Client `src/db/client.ts` (WAL + foreign_keys
-  pragmas, `enableChangeListener` for future live queries).
-- Ingestion:
-  - `src/lib/tcg/types.ts` — ApiSet/ApiCard subset shapes.
-  - `src/lib/tcg/mappers.ts` — pure mappers; `deriveVariants` from tcgplayer
-    price keys (canonical order, verbatim key names e.g. `reverseHolofoil`,
-    `1stEditionHolofoil`), rarity-heuristic fallback, never empty.
-  - `src/lib/tcg/api.ts` — paginated fetch client (pageSize 250, optional
-    `EXPO_PUBLIC_POKEMONTCG_API_KEY`).
-  - `src/db/ingest.ts` — chunked upserts (`excluded.*`), `ingestSets`,
-    `ensureSetCards(db, setId)` (no-op once ingested), `listIngestedSetIds`.
-  - Fixtures: `scripts/fetch-fixtures.mjs` → `src/lib/tcg/__fixtures__/`
-    (sets.json: 173 sets; cards.cel25.json: 25 cards, checked in).
-    `src/db/devSeed.ts` seeds from fixtures in `__DEV__` at launch.
-- Image cache: `src/features/cards/images.ts` — expo-image memory-disk
-  policy constant, `cardImageUri` size fallback, `prefetchCardImages`.
-- Tests: 14 passing (mapper unit tests + fixture-driven API-drift test).
-- Verified: `npx expo export` bundles cleanly (migrations + fixtures inline).
-  Not yet run on a simulator/device.
+- Schema `src/db/schema.ts` (binders/pages/slots/cards/collection/sets),
+  migration `drizzle/0000_*.sql` applied at startup (`useMigrations`),
+  client with WAL + foreign_keys + change listener (`src/db/client.ts`).
+- Ingestion: `src/lib/tcg/` (types, pure mappers with `deriveVariants`
+  from tcgplayer price keys, paginated API client), `src/db/ingest.ts`
+  (chunked `excluded.*` upserts, `ingestSets`, `ensureSetCards`).
+- Fixtures `src/lib/tcg/__fixtures__/` (173 sets + cel25's 25 cards) via
+  `scripts/fetch-fixtures.mjs`; `src/db/devSeed.ts` seeds them in `__DEV__`.
+- Image caching helpers `src/features/cards/images.ts` (expo-image).
 
-## Next: M1 (needs a plan + user approval first)
+## M1 — code complete
 
-Binder CRUD, layout picker, card search/browse by set, drag & drop
-(long-press pickup, haptics, tap-to-place fallback, edge auto-scroll),
-page navigation + page-turn animation (Skia), variant-stacking toggle.
-Pure-logic-first candidates: slot/page index math for layouts, search query
-building, drag-target resolution.
+Pure logic (all Jest-tested, 39 tests total):
+- `src/lib/binder/layout.ts` — layoutSpec, slot position↔index,
+  ordinal↔(page,slot), pagesNeeded.
+- `src/lib/binder/provision.ts` — pure row builders (binder/pages/slots,
+  injectable id fn); empty pockets are concrete slot rows.
+- `src/lib/binder/dnd.ts` — pocketAt (gap-snapping drop target),
+  edgeDirection; worklet-safe.
+- `src/lib/binder/stacking.ts` — resolvePlacement (stack vs place).
+- `src/lib/search.ts` — LIKE escaping/normalization.
+
+DB services: `src/db/binders.ts` (create/list/update/touch/delete/
+duplicate — merged groups re-keyed on copy, addPages, getBinderDetail),
+`src/db/cards.ts` (listSets, listSetCards with CAST(number) ordering,
+searchCards ESCAPE'd LIKE), `src/db/slots.ts` (placeCard, setSlotQuantity,
+clearSlot, swapSlotContents).
+
+UI (`src/features/`, React Navigation stack in App.tsx):
+- `binders/BinderListScreen` — live-query list; create (name + layout +
+  page-count stepper in `BinderFormModal`), rename, duplicate, delete
+  (long-press menu).
+- `binders/BinderScreen` — spread view: horizontal paging FlatList, one
+  page per screen; ＋page in header; footer chevrons + indicator;
+  variant-stacking Switch; tap empty pocket → picker; tap filled pocket →
+  menu (Move via tap-to-place with banner, Clear).
+- Drag & drop: single Pan gesture per pager with
+  `activateAfterLongPress(350)`; source pocket resolved by geometry
+  (`measureInWindow` + arithmetic origin); `DragOverlay` floating card on
+  shared values; haptics on pickup/drop; dwell ~450ms at screen edge
+  auto-flips page (cooldown 650ms); drop swaps pocket contents
+  (swap-with-empty = move). Scroll disabled during drag.
+- `binders/PageTurnOverlay` — Skia fixed-cost sheet flip (cos scaleX
+  around spine, gradient sheen, fade shadow) on programmatic flips
+  (chevrons, edge auto-flip); finger swipes stay native.
+- `cards/PickerSetsScreen` — debounced name search over ingested cards,
+  else sets list (downloaded badge); `cards/PickerCardsScreen` — downloads
+  set on demand, 3-col grid, offline error state; `cards/placement.ts` —
+  placeIntoSlot honoring variant stacking. Add-a-card = 3 taps:
+  empty pocket → set → card.
+
+## Next: M2 (write plan, get user approval BEFORE implementing)
+
+Set checklists with rapid multi-tap toggles; CSV import (TCGplayer /
+pkmnbindr / Collectr); sort themes; one-tap auto-organize + shuffle
+animation; merged slots + custom slot images. Logic-first candidates:
+CSV parsers (3 formats), sort comparators per strategy, checklist state
+derivation, auto-organize slot assignment (uses ordinal→address from
+layout.ts).
 
 ## Open items / blockers
 
-- Reanimated 4 deviation awaiting user ratification (see above).
-- No simulator smoke test yet (`npx expo start` + press i) — first thing
-  worth doing in M1; App.tsx shows a sets/cards count as the smoke signal
-  (expect 173 sets / 25 cards in dev after seed).
-- No API key configured; unauthenticated rate limits are fine for dev.
+- **No simulator/device run yet across M0+M1.** Bundle exports cleanly but
+  runtime behavior (migrations, live queries, gestures, Skia overlay,
+  haptics) is unverified. Strongly recommend `npx expo start` + a manual
+  pass before M2: create binder → add card (3 taps) → drag/swap → edge
+  flip → stacking toggle → duplicate/delete binder.
+- Reanimated 4 deviation stands (see above).
+- Variant selection UI: placement uses the card's first variant; a variant
+  chooser (long-press in picker?) is a candidate M2 nicety, not committed.
+- `pagesRef`/`currentPageRef` pattern in BinderScreen assumes page list
+  doesn't shrink mid-drag; deleting pages isn't built yet, so safe.
+- No API key configured; unauthenticated rate limits fine for dev.
