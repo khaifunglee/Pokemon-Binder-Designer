@@ -12,7 +12,7 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useSharedValue } from 'react-native-reanimated';
+import { runOnJS, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
@@ -23,6 +23,7 @@ import { layoutSpec } from '../../lib/binder/layout';
 import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
+import { PageTurnOverlay } from './PageTurnOverlay';
 import { useBinderSpread } from './useBinderSpread';
 import type { PageVM, PocketVM } from './useBinderSpread';
 
@@ -56,6 +57,9 @@ export function BinderScreen({ route, navigation }: Props) {
   const dragActive = useSharedValue(0);
   const edgeDir = useSharedValue(0);
   const edgeSince = useSharedValue(0);
+  const turnProgress = useSharedValue(0);
+  const turnDirection = useSharedValue(1);
+  const [pagerHeight, setPagerHeight] = useState(0);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -98,12 +102,15 @@ export function BinderScreen({ route, navigation }: Props) {
     (index: number) => {
       const clamped = Math.max(0, Math.min(index, pagesRef.current.length - 1));
       if (clamped === currentPageRef.current) return;
+      turnDirection.value = clamped > currentPageRef.current ? 1 : -1;
+      turnProgress.value = 0;
+      turnProgress.value = withTiming(1, { duration: 380 });
       currentPageRef.current = clamped;
       setCurrentPage(clamped);
       listRef.current?.scrollToIndex({ index: clamped, animated: true });
       void Haptics.selectionAsync();
     },
-    [],
+    [turnDirection, turnProgress],
   );
 
   const flipPage = useCallback(
@@ -236,7 +243,14 @@ export function BinderScreen({ route, navigation }: Props) {
         </View>
       )}
 
-      <View ref={pagerRef} style={styles.pager} onLayout={measureGeometry}>
+      <View
+        ref={pagerRef}
+        style={styles.pager}
+        onLayout={(e) => {
+          setPagerHeight(e.nativeEvent.layout.height);
+          measureGeometry();
+        }}
+      >
         <GestureDetector gesture={panGesture}>
           <FlatList
             ref={listRef}
@@ -271,12 +285,45 @@ export function BinderScreen({ route, navigation }: Props) {
             )}
           />
         </GestureDetector>
+        {pagerHeight > 0 && (
+          <PageTurnOverlay
+            progress={turnProgress}
+            direction={turnDirection}
+            width={windowWidth}
+            height={pagerHeight}
+          />
+        )}
       </View>
 
       <View style={styles.footer}>
-        <Text style={styles.pageIndicator}>
-          Page {Math.min(currentPage + 1, pages.length)} / {pages.length}
-        </Text>
+        <View style={styles.pageNav}>
+          <Pressable
+            onPress={() => goToPage(currentPageRef.current - 1)}
+            hitSlop={12}
+            disabled={currentPage === 0}
+          >
+            <Text style={[styles.pageArrow, currentPage === 0 && styles.pageArrowOff]}>
+              ‹
+            </Text>
+          </Pressable>
+          <Text style={styles.pageIndicator}>
+            Page {Math.min(currentPage + 1, pages.length)} / {pages.length}
+          </Text>
+          <Pressable
+            onPress={() => goToPage(currentPageRef.current + 1)}
+            hitSlop={12}
+            disabled={currentPage >= pages.length - 1}
+          >
+            <Text
+              style={[
+                styles.pageArrow,
+                currentPage >= pages.length - 1 && styles.pageArrowOff,
+              ]}
+            >
+              ›
+            </Text>
+          </Pressable>
+        </View>
         <View style={styles.stackingRow}>
           <Text style={styles.stackingLabel}>Stack duplicates</Text>
           <Switch
@@ -313,6 +360,9 @@ const styles = StyleSheet.create({
     padding: PAGE_PADDING,
   },
   footer: { alignItems: 'center', paddingBottom: 16, gap: 8 },
+  pageNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  pageArrow: { fontSize: 26, color: '#e3350d', lineHeight: 28 },
+  pageArrowOff: { color: '#cfd8dc' },
   pageIndicator: { color: '#78909c', fontSize: 13 },
   stackingRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   stackingLabel: { color: '#546e7a', fontSize: 13 },
