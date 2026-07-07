@@ -13,6 +13,10 @@ interface Props {
   pockets: PocketVM[];
   pocketWidth: number;
   gap?: number;
+  /** Slot being dragged: pocket renders empty while its card floats. */
+  hiddenSlotId?: string | null;
+  /** Slot awaiting a tap-to-place move target. */
+  highlightSlotId?: string | null;
   onPocketPress?: (pocket: PocketVM) => void;
   onPocketLongPress?: (pocket: PocketVM) => void;
 }
@@ -22,6 +26,8 @@ export function PageGrid({
   pockets,
   pocketWidth,
   gap = 6,
+  hiddenSlotId = null,
+  highlightSlotId = null,
   onPocketPress,
   onPocketLongPress,
 }: Props) {
@@ -35,7 +41,8 @@ export function PageGrid({
           {Array.from({ length: cols }, (_, c) => {
             const pocket = pockets[r * cols + c];
             if (!pocket) return <View key={c} style={{ width: pocketWidth }} />;
-            const filled = pocket.slot.cardId != null;
+            const filled =
+              pocket.slot.cardId != null && pocket.slot.id !== hiddenSlotId;
             return (
               <Pressable
                 key={pocket.slot.id}
@@ -45,6 +52,7 @@ export function PageGrid({
                   styles.pocket,
                   { width: pocketWidth, height: pocketHeight },
                   !filled && styles.emptyPocket,
+                  pocket.slot.id === highlightSlotId && styles.highlighted,
                 ]}
               >
                 {filled ? (
@@ -91,6 +99,7 @@ const styles = StyleSheet.create({
     borderColor: '#bbb',
     backgroundColor: '#fafafa',
   },
+  highlighted: { borderWidth: 2, borderStyle: 'solid', borderColor: '#e3350d' },
   cardImage: { width: '100%', height: '100%' },
   plus: { fontSize: 22, color: '#bbb' },
   qtyBadge: {
