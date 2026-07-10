@@ -20,19 +20,26 @@ always be enough for a fresh session to resume.
 
 ## Notable deviations / environment facts
 
-- **On Expo SDK 56 (downgraded from 57, 2026-07-10, user decision).** The
-  user's App Store only serves the SDK 56 Expo Go client, their Xcode
-  (16.4, iOS 17.5 sim runtime only) can't build for their iOS 26.2 iPhone,
-  and they chose not to update Xcode. Project pinned to SDK 56 so they can
-  test in Expo Go. **Caveat (user informed): when their Expo Go
-  auto-updates to the 57 client, SDK 56 stops loading in it** — they may
-  disable Expo Go auto-updates; the re-upgrade is `npx expo install
-  expo@^57 && npx expo install --fix` and the 57-compatible config is in
+- **On Expo SDK 54 (2026-07-10, user decision; briefly on 56, then user
+  corrected to 54).** The user's App Store Expo Go client is SDK 54; their
+  Xcode (16.4, iOS 17.5 sim runtime only) can't build for their iOS 26.2
+  iPhone, and they chose not to update Xcode. Project pinned to SDK 54 so
+  they can test in Expo Go. **Caveat (user informed): when their Expo Go
+  auto-updates past 54, this SDK stops loading in it** — they may want to
+  disable Expo Go auto-updates. Re-upgrade path: `npx expo install
+  expo@^<target> && npx expo install --fix`, then re-check `app.json`
+  `plugins` (see expo-image note below) — the 57-compatible config is in
   git history (commit c28cbda and earlier).
-- **Reanimated 4.x, not 3** (CLAUDE.md says 3): SDK 56/57 require v4;
+- **`expo-image` has no config plugin on SDK 54** (added later upstream):
+  it must NOT appear in `app.json`'s `plugins` array on this SDK, or
+  `expo export`/`expo start` fails trying to resolve one from its
+  (TS-only, unbuilt) main entry. Re-check this when upgrading SDK again —
+  add it back only if a future SDK's expo-image ships an app.plugin.js.
+- **Reanimated 4.x, not 3** (CLAUDE.md says 3): SDK 54+ requires v4;
   worklets API unchanged. Flagged to user, not objected so far.
-- Expo SDK 56, RN 0.85.3, React 19.2, TS 6.0, drizzle-orm 0.45,
-  jest-expo 56, reanimated 4.3.1, gesture-handler 2.31.
+- Expo SDK 54 (~54.0.13), RN 0.81.5, React 19.1, TS ~5.9.2, drizzle-orm
+  0.45, jest-expo ~54.0.17, reanimated ~4.1.1, gesture-handler ~2.28,
+  react-native-worklets 0.8.3 (Reanimated 4 peer dep).
 - TS 6 needs explicit `"types": ["jest", "node"]` in tsconfig.
 - Drizzle `.sql` migrations bundle via `babel-plugin-inline-import` +
   metro sourceExts + `babel-preset-expo` as direct devDependency.
@@ -106,7 +113,7 @@ layout.ts).
 
 - **No simulator/device run yet across M0+M1.** Bundle exports cleanly but
   runtime behavior (migrations, live queries, gestures, Skia overlay,
-  haptics) is unverified. Now that SDK 56 matches the user's Expo Go:
+  haptics) is unverified. Now that SDK 54 matches the user's Expo Go:
   `npx expo start`, scan QR on the iPhone, then the manual pass: create
   binder → add card (3 taps) → drag/swap → edge flip → stacking toggle →
   duplicate/delete binder.
