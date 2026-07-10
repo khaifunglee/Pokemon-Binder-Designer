@@ -38,8 +38,18 @@ always be enough for a fresh session to resume.
 - **Reanimated 4.x, not 3** (CLAUDE.md says 3): SDK 54+ requires v4;
   worklets API unchanged. Flagged to user, not objected so far.
 - Expo SDK 54 (~54.0.13), RN 0.81.5, React 19.1, TS ~5.9.2, drizzle-orm
-  0.45, jest-expo ~54.0.17, reanimated ~4.1.1, gesture-handler ~2.28,
-  react-native-worklets 0.8.3 (Reanimated 4 peer dep).
+  0.45, jest-expo ~54.0.17, reanimated ~4.1.1, gesture-handler ~2.28.
+- **`react-native-worklets` MUST be pinned to exactly 0.5.1, not left to
+  npm's peer-range resolution.** Reanimated 4's peerDependency range is
+  "0.5 - 0.8"; npm picked 0.8.3, which crashed instantly in Expo Go with
+  "Exception in HostFunction" / NativeWorklets / guardedLoadModule — a
+  JS↔native protocol mismatch against the exact native worklets version
+  Expo Go's SDK 54 binary has compiled in (confirmed via
+  `node_modules/expo/bundledNativeModules.json`). Explicit dependency
+  entry `"react-native-worklets": "0.5.1"` in package.json. **Re-check
+  this exact way (read the new expo version's bundledNativeModules.json)
+  on every future SDK upgrade or downgrade — the correct worklets version
+  changes with it and npm won't pick it for you.**
 - TS 6 needs explicit `"types": ["jest", "node"]` in tsconfig.
 - Drizzle `.sql` migrations bundle via `babel-plugin-inline-import` +
   metro sourceExts + `babel-preset-expo` as direct devDependency.
