@@ -1,0 +1,1 @@
+ALTER TABLE `sets` ADD `ptcgo_code` text;

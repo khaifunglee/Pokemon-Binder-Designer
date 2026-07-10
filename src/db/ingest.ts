@@ -31,6 +31,7 @@ export async function upsertSets(db: Db, apiSets: ApiSet[]): Promise<void> {
             printedTotal: sql`excluded.printed_total`,
             total: sql`excluded.total`,
             releaseDate: sql`excluded.release_date`,
+            ptcgoCode: sql`excluded.ptcgo_code`,
             symbolUri: sql`excluded.symbol_uri`,
             logoUri: sql`excluded.logo_uri`,
           },

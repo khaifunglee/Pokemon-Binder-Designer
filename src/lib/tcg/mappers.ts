@@ -39,6 +39,7 @@ export function mapApiSet(api: ApiSet): SetInsert {
     printedTotal: api.printedTotal,
     total: api.total,
     releaseDate: api.releaseDate,
+    ptcgoCode: api.ptcgoCode ?? null,
     symbolUri: api.images?.symbol ?? null,
     logoUri: api.images?.logo ?? null,
   };

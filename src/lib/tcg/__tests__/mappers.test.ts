@@ -8,6 +8,7 @@ const apiSet: ApiSet = {
   printedTotal: 198,
   total: 258,
   releaseDate: '2023/03/31',
+  ptcgoCode: 'SVI',
   images: {
     symbol: 'https://images.pokemontcg.io/sv1/symbol.png',
     logo: 'https://images.pokemontcg.io/sv1/logo.png',
@@ -72,15 +73,17 @@ describe('mapApiSet', () => {
       printedTotal: 198,
       total: 258,
       releaseDate: '2023/03/31',
+      ptcgoCode: 'SVI',
       symbolUri: 'https://images.pokemontcg.io/sv1/symbol.png',
       logoUri: 'https://images.pokemontcg.io/sv1/logo.png',
     });
   });
 
-  it('tolerates missing images', () => {
-    const row = mapApiSet({ ...apiSet, images: undefined });
+  it('tolerates missing images and ptcgoCode', () => {
+    const row = mapApiSet({ ...apiSet, images: undefined, ptcgoCode: undefined });
     expect(row.symbolUri).toBeNull();
     expect(row.logoUri).toBeNull();
+    expect(row.ptcgoCode).toBeNull();
   });
 });
 

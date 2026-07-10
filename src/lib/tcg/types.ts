@@ -10,6 +10,7 @@ export interface ApiSet {
   printedTotal: number;
   total: number;
   releaseDate: string; // "YYYY/MM/DD"
+  ptcgoCode?: string;
   images?: {
     symbol?: string;
     logo?: string;

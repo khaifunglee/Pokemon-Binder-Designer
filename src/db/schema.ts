@@ -36,6 +36,8 @@ export const sets = sqliteTable('sets', {
   printedTotal: integer('printed_total').notNull(),
   total: integer('total').notNull(),
   releaseDate: text('release_date').notNull(), // API format "YYYY/MM/DD"
+  /** TCGplayer/PTCGO set code (e.g. "SVI"); null for ~15% of sets. */
+  ptcgoCode: text('ptcgo_code'),
   symbolUri: text('symbol_uri'),
   logoUri: text('logo_uri'),
   /** Set when all cards of the set have been ingested into `cards`. */
