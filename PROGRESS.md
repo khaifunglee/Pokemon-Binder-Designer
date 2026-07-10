@@ -6,7 +6,7 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M1 code complete (not yet smoke-tested on simulator) — next: M2 plan (needs user approval)
+## Status: M2 code complete (needs device smoke test) — next: M3 plan (needs user approval)
 
 ## Approved decisions (user-confirmed)
 
@@ -17,6 +17,9 @@ always be enough for a fresh session to resume.
 - **Navigation**: React Navigation (native stack), per user choice.
 - **M1 plan approved** (2026-07-07): logic-first order, then binder list,
   picker, spread view, dnd, stacking, page-turn.
+- **M1 smoke-tested on user's iPhone (2026-07-10): all flows pass.**
+- **M2 plan approved** (2026-07-10), including the two new Expo deps
+  (expo-document-picker for CSV, expo-image-picker for custom images).
 
 ## Notable deviations / environment facts
 
@@ -110,26 +113,91 @@ UI (`src/features/`, React Navigation stack in App.tsx):
   placeIntoSlot honoring variant stacking. Add-a-card = 3 taps:
   empty pocket → set → card.
 
-## Next: M2 (write plan, get user approval BEFORE implementing)
+## M2 — code complete
 
-Set checklists with rapid multi-tap toggles; CSV import (TCGplayer /
-pkmnbindr / Collectr); sort themes; one-tap auto-organize + shuffle
-animation; merged slots + custom slot images. Logic-first candidates:
-CSV parsers (3 formats), sort comparators per strategy, checklist state
-derivation, auto-organize slot assignment (uses ordinal→address from
-layout.ts).
+Pure logic (Jest-tested; suite now 87 tests):
+- `src/lib/import/csv.ts` — RFC 4180 parser (quotes, CRLF, embedded
+  commas/newlines), no deps.
+- `src/lib/import/formats.ts` — header-synonym mapping + format detection.
+  TCGplayer signature is real (Simple Name + Set Code + Printing);
+  **pkmnbindr and Collectr signatures are reconstructions** (no official
+  spec found) — unknown headers fall back to 'generic' synonym mapping,
+  so mismatches degrade instead of failing. Fixture CSVs in
+  `src/lib/import/__fixtures__/`; replace with real exports when the user
+  provides samples.
+- `src/lib/import/resolve.ts` — set resolution (ptcgoCode/id/name, code
+  beats name), card matching (zero-stripped number key, name tie-break,
+  ambiguity detection), variant-hint application, placement planning
+  (same card+variant rows merge; stacking merges per card).
+- `src/lib/binder/sort.ts` — comparators: master-set (release date → set →
+  numeric-aware collector number; alpha-prefixed ranges like TG12 after
+  plain numbers), colour (canonical energy-type order, Trainer/Energy
+  last), pokedex (min dex, non-Pokémon last), rarity (ladder, unknown
+  after known), custom = no-op.
+- `src/lib/binder/organize.ts` — planOrganize: cards flow into unpinned
+  pockets in sorted order, rest empty; **pinned = mergedGroupId or
+  customImageUri set** — pinned pockets are never sources or targets.
+  Emits only actual changes.
+- `src/lib/binder/merge.ts` — merged-slot rectangle validation
+  (isSolidRectangle, mergeUnion of whole groups, groupRegions for
+  rendering, top-left anchor holds region content).
+
+DB/services: `src/db/organize.ts` (autoOrganize: join + plan + one
+transaction + records sortStrategy), `src/db/collectionService.ts`
+(toggleOwned — row existence = owned, zero deletes; adjustOwnedQuantity;
+addOwned bulk upsert adding quantities), `src/db/importService.ts`
+(resolveImport downloads referenced sets once, per-line problems;
+applyImport fills empty unpinned pockets in page order, grows binder,
+then addOwned + touch), slots.ts gains setMergedGroup/unmergeGroup/
+setCustomImage.
+
+UI:
+- **1-tap organize**: ⇅ in binder header re-runs binder.sortStrategy
+  (picker on long-press, or on tap while strategy is 'custom').
+  `ShuffleOverlay` = 16-sprite fixed-cost Skia card-tumble, min 1200ms,
+  is the loading state (`SHUFFLE_MIN_MS`).
+- **Checklists**: BinderList header → ChecklistSets (per-set owned
+  progress bars, live) → Checklist (ensureSetCards on open; tap row
+  toggles owned instantly, +/- quantity steppers on owned rows; header
+  shows owned/total). `src/features/checklist/`.
+- **CSV import**: binder long-press → Import CSV… → document picker →
+  parse/resolve with spinner → preview (format, matched count, per-line
+  problems) → apply (pockets filled, pages added, collection updated).
+  `src/features/import/ImportScreen.tsx`. Uses
+  `expo-file-system/legacy` readAsStringAsync (SDK 54 has both APIs).
+- **Merged slots + custom images**: pocket menu (tap filled / long-press
+  any) offers merge right/below (only when the union stays a solid
+  rectangle), unmerge, custom image (copied into
+  documentDirectory/custom-images/ — picker URIs are temporary), remove
+  custom image. Merged regions render as one absolute-positioned
+  pressable spanning the bounding box, anchored at the top-left slot.
+  Merged/custom pockets are excluded from drag & drop (source and
+  target), consistent with organize/import pinning.
+
+## Next: M3 (write plan, get user approval BEFORE implementing)
+
+Per-binder completion % + missing-card list; cost-to-complete via price
+data (needs a price ingestion decision — TCG API tcgplayer prices are in
+the card payload but we don't store them; likely a new column or table →
+ask user); sleeve/slide-in animation; 60fps profiling pass; export binder
+page as PNG.
 
 ## Open items / blockers
 
-- **No simulator/device run yet across M0+M1.** Bundle exports cleanly but
-  runtime behavior (migrations, live queries, gestures, Skia overlay,
-  haptics) is unverified. Now that SDK 54 matches the user's Expo Go:
-  `npx expo start`, scan QR on the iPhone, then the manual pass: create
-  binder → add card (3 taps) → drag/swap → edge flip → stacking toggle →
-  duplicate/delete binder.
-- Reanimated 4 deviation stands (see above).
-- Variant selection UI: placement uses the card's first variant; a variant
-  chooser (long-press in picker?) is a candidate M2 nicety, not committed.
-- `pagesRef`/`currentPageRef` pattern in BinderScreen assumes page list
-  doesn't shrink mid-drag; deleting pages isn't built yet, so safe.
+- **M2 not yet device-tested.** Suggested pass: organize a messy binder
+  by each strategy (shuffle plays, order correct, pinned pockets stay) →
+  checklist rapid-tap a set → import the fixture CSVs from
+  src/lib/import/__fixtures__ → merge 2x2 block, set custom image, verify
+  drag skips it → unmerge.
+- pkmnbindr/Collectr CSV formats are reconstructions — ask user for real
+  export files to lock signatures and fixtures.
+- Merging pockets that already hold cards hides non-anchor contents (the
+  region shows the anchor's face); contents remain in the DB. Merge is
+  intended for aesthetic regions. Candidate refinement: block merging
+  over filled pockets or auto-relocate their cards.
+- Import + variant stacking merges only within the import batch; it does
+  not stack onto pockets already in the binder (documented MVP cut).
+- Variant selection UI: placement still uses the card's first variant.
+- `pagesRef`/`currentPageRef` pattern assumes page list doesn't shrink
+  mid-drag; page deletion still unbuilt, so safe.
 - No API key configured; unauthenticated rate limits fine for dev.
