@@ -20,9 +20,19 @@ always be enough for a fresh session to resume.
 
 ## Notable deviations / environment facts
 
-- **Reanimated 4.5, not 3** (CLAUDE.md says 3): SDK 57 / RN 0.86 requires
-  v4; worklets API unchanged. Flagged to user, not objected so far.
-- Expo SDK 57, RN 0.86, React 19.2, TS 6.0, drizzle-orm 0.45, jest-expo 57.
+- **On Expo SDK 56 (downgraded from 57, 2026-07-10, user decision).** The
+  user's App Store only serves the SDK 56 Expo Go client, their Xcode
+  (16.4, iOS 17.5 sim runtime only) can't build for their iOS 26.2 iPhone,
+  and they chose not to update Xcode. Project pinned to SDK 56 so they can
+  test in Expo Go. **Caveat (user informed): when their Expo Go
+  auto-updates to the 57 client, SDK 56 stops loading in it** — they may
+  disable Expo Go auto-updates; the re-upgrade is `npx expo install
+  expo@^57 && npx expo install --fix` and the 57-compatible config is in
+  git history (commit c28cbda and earlier).
+- **Reanimated 4.x, not 3** (CLAUDE.md says 3): SDK 56/57 require v4;
+  worklets API unchanged. Flagged to user, not objected so far.
+- Expo SDK 56, RN 0.85.3, React 19.2, TS 6.0, drizzle-orm 0.45,
+  jest-expo 56, reanimated 4.3.1, gesture-handler 2.31.
 - TS 6 needs explicit `"types": ["jest", "node"]` in tsconfig.
 - Drizzle `.sql` migrations bundle via `babel-plugin-inline-import` +
   metro sourceExts + `babel-preset-expo` as direct devDependency.
@@ -96,9 +106,10 @@ layout.ts).
 
 - **No simulator/device run yet across M0+M1.** Bundle exports cleanly but
   runtime behavior (migrations, live queries, gestures, Skia overlay,
-  haptics) is unverified. Strongly recommend `npx expo start` + a manual
-  pass before M2: create binder → add card (3 taps) → drag/swap → edge
-  flip → stacking toggle → duplicate/delete binder.
+  haptics) is unverified. Now that SDK 56 matches the user's Expo Go:
+  `npx expo start`, scan QR on the iPhone, then the manual pass: create
+  binder → add card (3 taps) → drag/swap → edge flip → stacking toggle →
+  duplicate/delete binder.
 - Reanimated 4 deviation stands (see above).
 - Variant selection UI: placement uses the card's first variant; a variant
   chooser (long-press in picker?) is a candidate M2 nicety, not committed.
