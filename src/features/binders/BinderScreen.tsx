@@ -12,10 +12,19 @@ import {
   View,
 } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
-import { runOnJS, useSharedValue, withTiming } from 'react-native-reanimated';
+import {
+  cancelAnimation,
+  Easing,
+  runOnJS,
+  useSharedValue,
+  withRepeat,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
+import { autoOrganize } from '../../db/organize';
+import type { SortStrategy } from '../../db/schema';
 import { clearSlot, swapSlotContents } from '../../db/slots';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
@@ -24,6 +33,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { PageTurnOverlay } from './PageTurnOverlay';
+import { ShuffleOverlay } from './ShuffleOverlay';
 import { useBinderSpread } from './useBinderSpread';
 import type { PageVM, PocketVM } from './useBinderSpread';
 
@@ -35,6 +45,15 @@ const LONG_PRESS_MS = 350;
 const EDGE_WIDTH = 44;
 const EDGE_DWELL_MS = 450;
 const EDGE_COOLDOWN_MS = 650;
+/** The shuffle is the loading state; keep it visible at least this long. */
+const SHUFFLE_MIN_MS = 1200;
+
+const STRATEGY_LABELS: [SortStrategy, string][] = [
+  ['master-set', 'Master set'],
+  ['colour', 'Colour'],
+  ['pokedex', 'Pokédex'],
+  ['rarity', 'Rarity'],
+];
 
 export function BinderScreen({ route, navigation }: Props) {
   const { binderId } = route.params;
@@ -43,6 +62,8 @@ export function BinderScreen({ route, navigation }: Props) {
   const [currentPage, setCurrentPage] = useState(0);
   const [dragging, setDragging] = useState<PocketVM | null>(null);
   const [moveSource, setMoveSource] = useState<PocketVM | null>(null);
+  const [organizing, setOrganizing] = useState(false);
+  const organizingRef = useRef(false);
 
   const listRef = useRef<FlatList<PageVM>>(null);
   const pagerRef = useRef<View>(null);
@@ -59,18 +80,79 @@ export function BinderScreen({ route, navigation }: Props) {
   const edgeSince = useSharedValue(0);
   const turnProgress = useSharedValue(0);
   const turnDirection = useSharedValue(1);
+  const shuffleActive = useSharedValue(0);
+  const shuffleProgress = useSharedValue(0);
   const [pagerHeight, setPagerHeight] = useState(0);
+
+  const runOrganize = useCallback(
+    (strategy: SortStrategy) => {
+      if (organizingRef.current) return;
+      organizingRef.current = true;
+      setOrganizing(true);
+      shuffleProgress.value = 0;
+      shuffleProgress.value = withRepeat(
+        withTiming(1, { duration: 1100, easing: Easing.linear }),
+        -1,
+      );
+      shuffleActive.value = withTiming(1, { duration: 150 });
+      const started = Date.now();
+      void (async () => {
+        try {
+          await autoOrganize(db, binderId, strategy);
+        } finally {
+          const remaining = Math.max(0, SHUFFLE_MIN_MS - (Date.now() - started));
+          setTimeout(() => {
+            shuffleActive.value = withTiming(0, { duration: 250 });
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            // Unmount only after the fade-out completes.
+            setTimeout(() => {
+              cancelAnimation(shuffleProgress);
+              organizingRef.current = false;
+              setOrganizing(false);
+            }, 300);
+          }, remaining);
+        }
+      })();
+    },
+    [binderId, shuffleActive, shuffleProgress],
+  );
+
+  const pickStrategy = useCallback(() => {
+    Alert.alert('Organize by', undefined, [
+      ...STRATEGY_LABELS.map(([strategy, label]) => ({
+        text: label,
+        onPress: () => runOrganize(strategy),
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  }, [runOrganize]);
+
+  const sortStrategy = binder?.sortStrategy ?? 'custom';
 
   useLayoutEffect(() => {
     navigation.setOptions({
       title: binder?.name ?? 'Binder',
       headerRight: () => (
-        <Pressable onPress={() => void addPages(db, binderId)} hitSlop={12}>
-          <Text style={styles.addPage}>＋ page</Text>
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable
+            // 1-tap reorganize with the binder's strategy; long-press
+            // (or tap while still 'custom') picks a strategy first.
+            onPress={() =>
+              sortStrategy === 'custom' ? pickStrategy() : runOrganize(sortStrategy)
+            }
+            onLongPress={pickStrategy}
+            hitSlop={12}
+            disabled={organizing}
+          >
+            <Text style={[styles.headerBtn, organizing && styles.headerBtnOff]}>⇅</Text>
+          </Pressable>
+          <Pressable onPress={() => void addPages(db, binderId)} hitSlop={12}>
+            <Text style={styles.addPage}>＋ page</Text>
+          </Pressable>
+        </View>
       ),
     });
-  }, [navigation, binder?.name, binderId]);
+  }, [navigation, binder?.name, binderId, sortStrategy, organizing, pickStrategy, runOrganize]);
 
   const layout = binder?.layout ?? '3x3';
   const { rows, cols } = layoutSpec(layout);
@@ -293,6 +375,14 @@ export function BinderScreen({ route, navigation }: Props) {
             height={pagerHeight}
           />
         )}
+        {pagerHeight > 0 && organizing && (
+          <ShuffleOverlay
+            active={shuffleActive}
+            progress={shuffleProgress}
+            width={windowWidth}
+            height={pagerHeight}
+          />
+        )}
       </View>
 
       <View style={styles.footer}>
@@ -351,6 +441,9 @@ export function BinderScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#eceff1' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  headerBtn: { color: '#e3350d', fontSize: 18, fontWeight: '600' },
+  headerBtnOff: { color: '#cfd8dc' },
   addPage: { color: '#e3350d', fontSize: 15, fontWeight: '600' },
   pager: { flex: 1 },
   pageContainer: {
