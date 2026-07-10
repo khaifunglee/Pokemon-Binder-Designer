@@ -8,6 +8,8 @@ export type RootStackParamList = {
   /** Collection checklists: pick a set, then tick owned cards. */
   ChecklistSets: undefined;
   Checklist: { setId: string };
+  /** CSV import targeting a binder. */
+  Import: { binderId: string };
 };
 
 declare global {

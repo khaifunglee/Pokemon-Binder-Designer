@@ -43,6 +43,10 @@ export function BinderListScreen() {
     Alert.alert(binder.name, undefined, [
       { text: 'Rename', onPress: () => setRenaming(binder) },
       {
+        text: 'Import CSV…',
+        onPress: () => navigation.navigate('Import', { binderId: binder.id }),
+      },
+      {
         text: 'Duplicate',
         onPress: () => void duplicateBinder(db, binder.id),
       },

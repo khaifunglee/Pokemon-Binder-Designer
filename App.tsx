@@ -11,6 +11,7 @@ import { PickerCardsScreen } from './src/features/cards/PickerCardsScreen';
 import { PickerSetsScreen } from './src/features/cards/PickerSetsScreen';
 import { ChecklistScreen } from './src/features/checklist/ChecklistScreen';
 import { ChecklistSetsScreen } from './src/features/checklist/ChecklistSetsScreen';
+import { ImportScreen } from './src/features/import/ImportScreen';
 import type { RootStackParamList } from './src/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -55,6 +56,11 @@ export default function App() {
             options={{ title: 'Checklists' }}
           />
           <Stack.Screen name="Checklist" component={ChecklistScreen} />
+          <Stack.Screen
+            name="Import"
+            component={ImportScreen}
+            options={{ title: 'Import CSV', presentation: 'modal' }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style="auto" />
