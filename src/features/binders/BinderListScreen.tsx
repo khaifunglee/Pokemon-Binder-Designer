@@ -27,9 +27,14 @@ export function BinderListScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerRight: () => (
-        <Pressable onPress={() => setCreating(true)} hitSlop={12}>
-          <Text style={styles.addButton}>＋</Text>
-        </Pressable>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.navigate('ChecklistSets')} hitSlop={12}>
+            <Text style={styles.headerAction}>Checklists</Text>
+          </Pressable>
+          <Pressable onPress={() => setCreating(true)} hitSlop={12}>
+            <Text style={styles.addButton}>＋</Text>
+          </Pressable>
+        </View>
       ),
     });
   }, [navigation]);
@@ -116,6 +121,8 @@ export function BinderListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f5f5f5' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 18 },
+  headerAction: { fontSize: 15, color: '#e3350d', fontWeight: '600' },
   addButton: { fontSize: 22, color: '#e3350d' },
   list: { padding: 12, gap: 8 },
   row: {

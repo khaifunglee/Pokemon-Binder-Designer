@@ -9,6 +9,8 @@ import { BinderListScreen } from './src/features/binders/BinderListScreen';
 import { BinderScreen } from './src/features/binders/BinderScreen';
 import { PickerCardsScreen } from './src/features/cards/PickerCardsScreen';
 import { PickerSetsScreen } from './src/features/cards/PickerSetsScreen';
+import { ChecklistScreen } from './src/features/checklist/ChecklistScreen';
+import { ChecklistSetsScreen } from './src/features/checklist/ChecklistSetsScreen';
 import type { RootStackParamList } from './src/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -47,6 +49,12 @@ export default function App() {
             component={PickerCardsScreen}
             options={{ title: 'Pick a card' }}
           />
+          <Stack.Screen
+            name="ChecklistSets"
+            component={ChecklistSetsScreen}
+            options={{ title: 'Checklists' }}
+          />
+          <Stack.Screen name="Checklist" component={ChecklistScreen} />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style="auto" />

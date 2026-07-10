@@ -5,6 +5,9 @@ export type RootStackParamList = {
   PickerSets: { binderId: string; slotId: string };
   /** Card picker step 2: choose a card from the set. */
   PickerCards: { binderId: string; slotId: string; setId: string };
+  /** Collection checklists: pick a set, then tick owned cards. */
+  ChecklistSets: undefined;
+  Checklist: { setId: string };
 };
 
 declare global {
