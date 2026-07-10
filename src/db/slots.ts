@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 
 import type { Db } from './client';
 import { slots } from './schema';
@@ -47,6 +47,34 @@ export async function clearSlot(db: Db, slotId: string): Promise<void> {
       customImageUri: null,
     })
     .where(eq(slots.id, slotId));
+}
+
+/** Assign (or clear, with null) the merged group of a set of pockets. */
+export async function setMergedGroup(
+  db: Db,
+  slotIds: string[],
+  groupId: string | null,
+): Promise<void> {
+  if (slotIds.length === 0) return;
+  await db
+    .update(slots)
+    .set({ mergedGroupId: groupId })
+    .where(inArray(slots.id, slotIds));
+}
+
+export async function unmergeGroup(db: Db, groupId: string): Promise<void> {
+  await db
+    .update(slots)
+    .set({ mergedGroupId: null })
+    .where(eq(slots.mergedGroupId, groupId));
+}
+
+export async function setCustomImage(
+  db: Db,
+  slotId: string,
+  uri: string | null,
+): Promise<void> {
+  await db.update(slots).set({ customImageUri: uri }).where(eq(slots.id, slotId));
 }
 
 /**

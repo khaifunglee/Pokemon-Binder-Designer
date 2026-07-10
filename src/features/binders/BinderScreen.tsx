@@ -21,14 +21,24 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
+import { randomUUID } from 'expo-crypto';
+
 import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
 import { autoOrganize } from '../../db/organize';
 import type { SortStrategy } from '../../db/schema';
-import { clearSlot, swapSlotContents } from '../../db/slots';
+import {
+  clearSlot,
+  setCustomImage,
+  setMergedGroup,
+  swapSlotContents,
+  unmergeGroup,
+} from '../../db/slots';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
 import { layoutSpec } from '../../lib/binder/layout';
+import { mergeUnion } from '../../lib/binder/merge';
+import { deleteCustomImage, pickAndStoreCustomImage } from './customImage';
 import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
@@ -218,6 +228,9 @@ export function BinderScreen({ route, navigation }: Props) {
       if (idx == null) return;
       const pocket = pagesRef.current[currentPageRef.current]?.pockets[idx];
       if (!pocket || pocket.slot.cardId == null) return;
+      // Merged regions and custom-image pockets are pinned: no dragging.
+      if (pocket.slot.mergedGroupId !== null || pocket.slot.customImageUri !== null)
+        return;
       draggingRef.current = pocket;
       setDragging(pocket);
       dragActive.value = 1;
@@ -236,7 +249,12 @@ export function BinderScreen({ route, navigation }: Props) {
           idx == null
             ? null
             : pagesRef.current[currentPageRef.current]?.pockets[idx];
-        if (target) finishSwap(source, target);
+        if (
+          target &&
+          target.slot.mergedGroupId === null &&
+          target.slot.customImageUri === null
+        )
+          finishSwap(source, target);
       }
       draggingRef.current = null;
       setDragging(null);
@@ -290,26 +308,95 @@ export function BinderScreen({ route, navigation }: Props) {
     if (source) finishSwap(source, target);
   };
 
+  const touch = () => void touchBinder(db, binderId);
+
+  const applyMerge = (pocket: PocketVM, direction: 'right' | 'down') => {
+    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
+    if (!page) return;
+    const cells = page.pockets.map((p) => ({
+      slotId: p.slot.id,
+      slotIndex: p.slot.slotIndex,
+      mergedGroupId: p.slot.mergedGroupId,
+    }));
+    const union = mergeUnion(cells, layout, pocket.slot.slotIndex, direction);
+    if (!union) return;
+    const groupId =
+      union.find((c) => c.mergedGroupId !== null)?.mergedGroupId ?? randomUUID();
+    void setMergedGroup(db, union.map((c) => c.slotId), groupId).then(touch);
+  };
+
+  const setPocketImage = async (pocket: PocketVM) => {
+    const uri = await pickAndStoreCustomImage();
+    if (uri === null) return;
+    if (pocket.slot.customImageUri) await deleteCustomImage(pocket.slot.customImageUri);
+    await setCustomImage(db, pocket.slot.id, uri);
+    touch();
+  };
+
+  const pocketMenu = (pocket: PocketVM) => {
+    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
+    const cells = (page?.pockets ?? []).map((p) => ({
+      slotId: p.slot.id,
+      slotIndex: p.slot.slotIndex,
+      mergedGroupId: p.slot.mergedGroupId,
+    }));
+    const filled = pocket.slot.cardId != null;
+    const buttons = [
+      ...(filled
+        ? [{ text: 'Move (tap a pocket)', onPress: () => setMoveSource(pocket) }]
+        : []),
+      ...(mergeUnion(cells, layout, pocket.slot.slotIndex, 'right')
+        ? [{ text: 'Merge with right pocket', onPress: () => applyMerge(pocket, 'right') }]
+        : []),
+      ...(mergeUnion(cells, layout, pocket.slot.slotIndex, 'down')
+        ? [{ text: 'Merge with pocket below', onPress: () => applyMerge(pocket, 'down') }]
+        : []),
+      ...(pocket.slot.mergedGroupId !== null
+        ? [
+            {
+              text: 'Unmerge',
+              onPress: () =>
+                void unmergeGroup(db, pocket.slot.mergedGroupId!).then(touch),
+            },
+          ]
+        : []),
+      { text: 'Custom image…', onPress: () => void setPocketImage(pocket) },
+      ...(pocket.slot.customImageUri !== null
+        ? [
+            {
+              text: 'Remove custom image',
+              onPress: () => {
+                void deleteCustomImage(pocket.slot.customImageUri!)
+                  .then(() => setCustomImage(db, pocket.slot.id, null))
+                  .then(touch);
+              },
+            },
+          ]
+        : []),
+      ...(filled
+        ? [
+            {
+              text: 'Clear pocket',
+              style: 'destructive' as const,
+              onPress: () => void clearSlot(db, pocket.slot.id).then(touch),
+            },
+          ]
+        : []),
+      { text: 'Cancel', style: 'cancel' as const },
+    ];
+    Alert.alert(pocket.cardName ?? 'Pocket', undefined, buttons);
+  };
+
   const onPocketPress = (pocket: PocketVM) => {
     if (moveSource) {
       executeMoveTo(pocket);
       return;
     }
-    if (pocket.slot.cardId == null) {
+    if (pocket.slot.cardId == null && pocket.slot.customImageUri == null) {
       navigation.navigate('PickerSets', { binderId, slotId: pocket.slot.id });
       return;
     }
-    Alert.alert(pocket.cardName ?? 'Card', undefined, [
-      { text: 'Move (tap a pocket)', onPress: () => setMoveSource(pocket) },
-      {
-        text: 'Clear pocket',
-        style: 'destructive',
-        onPress: () => {
-          void clearSlot(db, pocket.slot.id).then(() => touchBinder(db, binderId));
-        },
-      },
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    pocketMenu(pocket);
   };
 
   return (
@@ -362,6 +449,7 @@ export function BinderScreen({ route, navigation }: Props) {
                   hiddenSlotId={dragging?.slot.id ?? null}
                   highlightSlotId={moveSource?.slot.id ?? null}
                   onPocketPress={onPocketPress}
+                  onPocketLongPress={pocketMenu}
                 />
               </View>
             )}
