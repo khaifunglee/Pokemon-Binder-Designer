@@ -8,6 +8,7 @@ import type { SortStrategy } from '../../db/schema';
 
 export interface SortableEntry {
   slotId: string;
+  cardId: string;
   cardName: string;
   /** Collector number, e.g. "25", "025a", "TG12". */
   number: string;
@@ -65,7 +66,7 @@ function numberParts(raw: string): { prefix: string; num: number; suffix: string
   return { prefix, num, suffix };
 }
 
-function compareNumbers(a: string, b: string): number {
+export function compareCollectorNumbers(a: string, b: string): number {
   const pa = numberParts(a);
   const pb = numberParts(b);
   // Un-prefixed numbers ("25") come before prefixed ranges ("TG12", "GG01").
@@ -75,14 +76,15 @@ function compareNumbers(a: string, b: string): number {
 }
 
 /** Release date, then set id, then collector number — the master-set order. */
-function compareMasterSet(a: SortableEntry, b: SortableEntry): number {
+export function compareMasterSet(a: SortableEntry, b: SortableEntry): number {
   if (a.setReleaseDate !== b.setReleaseDate)
     return a.setReleaseDate < b.setReleaseDate ? -1 : 1;
   if (a.setId !== b.setId) return a.setId < b.setId ? -1 : 1;
-  return compareNumbers(a.number, b.number);
+  return compareCollectorNumbers(a.number, b.number);
 }
 
-function typeRank(e: SortableEntry): number {
+/** Colour grouping key: energy-type index; Trainers then Energy last. */
+export function typeRank(e: SortableEntry): number {
   if (e.supertype !== 'Pokémon') {
     // Trainers then Energy after all Pokémon.
     return e.supertype === 'Trainer' ? TYPE_ORDER.length + 1 : TYPE_ORDER.length + 2;
@@ -99,11 +101,29 @@ function compareColour(a: SortableEntry, b: SortableEntry): number {
   return compareMasterSet(a, b);
 }
 
-function dexRank(e: SortableEntry): number {
+export function dexRank(e: SortableEntry): number {
   return e.nationalPokedexNumbers.length
     ? Math.min(...e.nationalPokedexNumbers)
     : Number.POSITIVE_INFINITY; // trainers/energies after all Pokémon
 }
+
+/**
+ * Coarse rarity buckets for page-grouped organizing: commons/uncommons,
+ * rares, ultras (ex/V/GX…), illustration/full-art/secret, promo/other.
+ * Keyword-based — the API's rarity vocabulary keeps growing.
+ */
+export function rarityBucket(rarity: string | null): number {
+  if (rarity === null) return 4;
+  const r = rarity.toLowerCase();
+  if (r === 'common' || r === 'uncommon') return 0;
+  if (/(illustration|secret|hyper|rainbow|full art|gold|trainer gallery)/.test(r)) return 3;
+  if (/(double rare|\bex\b|\bv\b|vmax|vstar|\bgx\b|ultra|prime|legend|break|ace spec|shiny)/.test(r))
+    return 2;
+  if (/(rare|holo|radiant|amazing)/.test(r)) return 1;
+  return 4; // promos and anything unrecognized
+}
+
+export const RARITY_BUCKET_COUNT = 5;
 
 function comparePokedex(a: SortableEntry, b: SortableEntry): number {
   const ra = dexRank(a);

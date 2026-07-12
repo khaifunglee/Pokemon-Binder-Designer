@@ -25,7 +25,7 @@ import { randomUUID } from 'expo-crypto';
 
 import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
-import { autoOrganize } from '../../db/organize';
+import { autoOrganize, organizePageGrowth } from '../../db/organize';
 import type { SortStrategy } from '../../db/schema';
 import {
   clearSlot,
@@ -100,18 +100,40 @@ export function BinderScreen({ route, navigation }: Props) {
   const runOrganize = useCallback(
     (strategy: SortStrategy) => {
       if (organizingRef.current) return;
-      organizingRef.current = true;
-      setOrganizing(true);
-      shuffleProgress.value = 0;
-      shuffleProgress.value = withRepeat(
-        withTiming(1, { duration: 1100, easing: Easing.linear }),
-        -1,
-      );
-      shuffleActive.value = withTiming(1, { duration: 150 });
-      const started = Date.now();
       void (async () => {
+        // Gapped layouts (master-set/pokédex) can grow the binder a lot;
+        // confirm before adding a noticeable number of pages.
+        const growth = await organizePageGrowth(db, binderId, strategy).catch(() => 0);
+        if (growth > 3) {
+          const proceed = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'Grow binder?',
+              `This layout leaves gaps for missing cards and needs ${growth} new pages.`,
+              [
+                { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+                { text: `Add ${growth} pages`, onPress: () => resolve(true) },
+              ],
+              { cancelable: true, onDismiss: () => resolve(false) },
+            );
+          });
+          if (!proceed) return;
+        }
+        if (organizingRef.current) return;
+        organizingRef.current = true;
+        setOrganizing(true);
+        shuffleProgress.value = 0;
+        shuffleProgress.value = withRepeat(
+          withTiming(1, { duration: 1100, easing: Easing.linear }),
+          -1,
+        );
+        shuffleActive.value = withTiming(1, { duration: 150 });
+        const started = Date.now();
         try {
           await autoOrganize(db, binderId, strategy);
+          // Reveal from the first page so the user can flip through.
+          currentPageRef.current = 0;
+          setCurrentPage(0);
+          listRef.current?.scrollToOffset({ offset: 0, animated: false });
         } finally {
           const remaining = Math.max(0, SHUFFLE_MIN_MS - (Date.now() - started));
           setTimeout(() => {

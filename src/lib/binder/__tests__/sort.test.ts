@@ -3,6 +3,7 @@ import type { SortableEntry } from '../sort';
 
 function entry(partial: Partial<SortableEntry> & { slotId: string }): SortableEntry {
   return {
+    cardId: `card-${partial.slotId}`,
     cardName: 'Card',
     number: '1',
     setId: 'sv1',

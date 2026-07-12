@@ -1,21 +1,24 @@
-import { asc, eq } from 'drizzle-orm';
+import { asc, eq, inArray } from 'drizzle-orm';
 
-import { planOrganize } from '../lib/binder/organize';
-import type { OrganizeSlot } from '../lib/binder/organize';
+import { layoutSpec } from '../lib/binder/layout';
+import { buildSequence, planFromSequence } from '../lib/binder/organize';
+import type { OrganizeSlot, SequenceContext } from '../lib/binder/organize';
+import { compareCollectorNumbers } from '../lib/binder/sort';
+import type { SortableEntry } from '../lib/binder/sort';
+import { addPages } from './binders';
 import type { Db } from './client';
 import { binders, cards, pages, sets, slots } from './schema';
-import type { SortStrategy } from './schema';
+import type { BinderRow, SortStrategy } from './schema';
 
-/**
- * One-tap reorganize: plans with pure logic, rewrites changed pockets in
- * a single transaction, and records the strategy on the binder. Returns
- * the number of pockets changed (0 = already organized).
- */
-export async function autoOrganize(
-  db: Db,
-  binderId: string,
-  strategy: SortStrategy,
-): Promise<number> {
+interface OrganizePrep {
+  binder: BinderRow;
+  organizeSlots: OrganizeSlot[];
+  sequence: (SortableEntry | null)[];
+  /** Pages that must be added so every sequence position has a pocket. */
+  pagesToAdd: number;
+}
+
+async function loadOrganizeSlots(db: Db, binderId: string): Promise<OrganizeSlot[]> {
   const rows = await db
     .select({
       slotId: slots.id,
@@ -41,7 +44,7 @@ export async function autoOrganize(
     .where(eq(pages.binderId, binderId))
     .orderBy(asc(pages.pageIndex), asc(slots.slotIndex));
 
-  const organizeSlots: OrganizeSlot[] = rows.map((r) => ({
+  return rows.map((r) => ({
     slotId: r.slotId,
     contents:
       r.cardId === null
@@ -56,6 +59,7 @@ export async function autoOrganize(
       r.cardId === null
         ? null
         : {
+            cardId: r.cardId,
             cardName: r.cardName ?? '',
             number: r.number ?? '',
             setId: r.setId ?? '',
@@ -67,8 +71,95 @@ export async function autoOrganize(
           },
     pinned: r.mergedGroupId !== null || r.customImageUri !== null,
   }));
+}
 
-  const changes = planOrganize(organizeSlots, strategy);
+async function loadFullSets(
+  db: Db,
+  setIds: string[],
+): Promise<SequenceContext['fullSets']> {
+  if (setIds.length === 0) return [];
+  const rows = await db
+    .select({
+      id: cards.id,
+      setId: cards.setId,
+      number: cards.number,
+      releaseDate: sets.releaseDate,
+    })
+    .from(cards)
+    .innerJoin(sets, eq(cards.setId, sets.id))
+    .where(inArray(cards.setId, setIds));
+
+  const bySet = new Map<string, { releaseDate: string; cards: { id: string; number: string }[] }>();
+  for (const r of rows) {
+    const entry = bySet.get(r.setId) ?? { releaseDate: r.releaseDate, cards: [] };
+    entry.cards.push({ id: r.id, number: r.number });
+    bySet.set(r.setId, entry);
+  }
+  return [...bySet.entries()].map(([setId, s]) => ({
+    setId,
+    releaseDate: s.releaseDate,
+    cardIds: s.cards
+      .sort((a, b) => compareCollectorNumbers(a.number, b.number))
+      .map((c) => c.id),
+  }));
+}
+
+async function prepareOrganize(
+  db: Db,
+  binderId: string,
+  strategy: Exclude<SortStrategy, 'custom'>,
+): Promise<OrganizePrep> {
+  const [binder] = await db.select().from(binders).where(eq(binders.id, binderId));
+  if (!binder) throw new Error(`binder ${binderId} not found`);
+
+  const organizeSlots = await loadOrganizeSlots(db, binderId);
+  const entries: SortableEntry[] = organizeSlots
+    .filter((s) => !s.pinned && s.contents !== null && s.sortable !== null)
+    .map((s) => ({ slotId: s.slotId, ...s.sortable! }));
+
+  const { slotsPerPage } = layoutSpec(binder.layout);
+  const fullSets =
+    strategy === 'master-set'
+      ? await loadFullSets(db, [...new Set(entries.map((e) => e.setId))])
+      : [];
+
+  const sequence = buildSequence(entries, strategy, { slotsPerPage, fullSets });
+  const movableCount = organizeSlots.filter((s) => !s.pinned).length;
+  const pagesToAdd = Math.max(
+    0,
+    Math.ceil((sequence.length - movableCount) / slotsPerPage),
+  );
+  return { binder, organizeSlots, sequence, pagesToAdd };
+}
+
+/** Pages an organize would add — lets the UI confirm big growth first. */
+export async function organizePageGrowth(
+  db: Db,
+  binderId: string,
+  strategy: SortStrategy,
+): Promise<number> {
+  if (strategy === 'custom') return 0;
+  return (await prepareOrganize(db, binderId, strategy)).pagesToAdd;
+}
+
+/**
+ * One-tap reorganize: plans with pure logic, grows the binder if the
+ * layout needs more pockets, rewrites changed pockets in a single
+ * transaction, and records the strategy. Returns pockets changed.
+ */
+export async function autoOrganize(
+  db: Db,
+  binderId: string,
+  strategy: SortStrategy,
+): Promise<number> {
+  if (strategy === 'custom') return 0;
+  let prep = await prepareOrganize(db, binderId, strategy);
+  if (prep.pagesToAdd > 0) {
+    await addPages(db, binderId, prep.pagesToAdd);
+    prep = { ...prep, organizeSlots: await loadOrganizeSlots(db, binderId) };
+  }
+
+  const changes = planFromSequence(prep.organizeSlots, prep.sequence);
 
   await db.transaction(async (tx) => {
     for (const change of changes) {
