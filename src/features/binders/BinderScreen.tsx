@@ -37,7 +37,8 @@ import {
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
 import { layoutSpec } from '../../lib/binder/layout';
-import { mergeUnion } from '../../lib/binder/merge';
+import { groupMergeUnion, MERGE_DIRECTIONS } from '../../lib/binder/merge';
+import type { MergeDirection } from '../../lib/binder/merge';
 import { deleteCustomImage, pickAndStoreCustomImage } from './customImage';
 import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
@@ -310,7 +311,7 @@ export function BinderScreen({ route, navigation }: Props) {
 
   const touch = () => void touchBinder(db, binderId);
 
-  const applyMerge = (pocket: PocketVM, direction: 'right' | 'down') => {
+  const applyMerge = (pocket: PocketVM, direction: MergeDirection) => {
     const page = pages.find((p) => p.pageId === pocket.slot.pageId);
     if (!page) return;
     const cells = page.pockets.map((p) => ({
@@ -318,7 +319,7 @@ export function BinderScreen({ route, navigation }: Props) {
       slotIndex: p.slot.slotIndex,
       mergedGroupId: p.slot.mergedGroupId,
     }));
-    const union = mergeUnion(cells, layout, pocket.slot.slotIndex, direction);
+    const union = groupMergeUnion(cells, layout, pocket.slot.slotIndex, direction);
     if (!union) return;
     const groupId =
       union.find((c) => c.mergedGroupId !== null)?.mergedGroupId ?? randomUUID();
@@ -345,12 +346,17 @@ export function BinderScreen({ route, navigation }: Props) {
       ...(filled
         ? [{ text: 'Move (tap a pocket)', onPress: () => setMoveSource(pocket) }]
         : []),
-      ...(mergeUnion(cells, layout, pocket.slot.slotIndex, 'right')
-        ? [{ text: 'Merge with right pocket', onPress: () => applyMerge(pocket, 'right') }]
-        : []),
-      ...(mergeUnion(cells, layout, pocket.slot.slotIndex, 'down')
-        ? [{ text: 'Merge with pocket below', onPress: () => applyMerge(pocket, 'down') }]
-        : []),
+      ...MERGE_DIRECTIONS.filter((dir) =>
+        groupMergeUnion(cells, layout, pocket.slot.slotIndex, dir),
+      ).map((dir) => ({
+        text: {
+          left: 'Merge with left pocket',
+          right: 'Merge with right pocket',
+          up: 'Merge with pocket above',
+          down: 'Merge with pocket below',
+        }[dir],
+        onPress: () => applyMerge(pocket, dir),
+      })),
       ...(pocket.slot.mergedGroupId !== null
         ? [
             {

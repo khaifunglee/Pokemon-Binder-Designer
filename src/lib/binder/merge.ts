@@ -1,4 +1,4 @@
-import { layoutSpec, slotPosition } from './layout';
+import { layoutSpec, slotIndexAt, slotPosition } from './layout';
 import type { BinderLayout } from '../../db/schema';
 
 /**
@@ -36,42 +36,104 @@ export function isSolidRectangle(slotIndexes: number[], layout: BinderLayout): b
   return unique.size === slotIndexes.length && unique.size === area;
 }
 
+export type MergeDirection = 'left' | 'right' | 'up' | 'down';
+
+export const MERGE_DIRECTIONS: MergeDirection[] = ['left', 'right', 'up', 'down'];
+
 /**
- * The cells a merge would produce: the source's whole group (or just the
- * source) plus the neighbour's whole group (or just the neighbour).
- * Returns null when the neighbour is off-page or the union isn't a solid
- * rectangle.
+ * The cells a merge would produce: the bounding rectangle of the source's
+ * group plus the neighbour's group, absorbing loose cells needed to keep
+ * the region solid. Returns null when the neighbour is off-page, already
+ * in the source's group, or another merged group sticks out of the
+ * resulting rectangle.
  */
 export function mergeUnion(
   cells: MergeCell[],
   layout: BinderLayout,
   sourceSlotIndex: number,
-  direction: 'right' | 'down',
+  direction: MergeDirection,
 ): MergeCell[] | null {
-  const { cols } = layoutSpec(layout);
+  const { cols, slotsPerPage } = layoutSpec(layout);
   const source = cells.find((c) => c.slotIndex === sourceSlotIndex);
   if (!source) return null;
 
   const { col } = slotPosition(layout, sourceSlotIndex);
-  const targetIndex =
-    direction === 'right'
-      ? col + 1 < cols
-        ? sourceSlotIndex + 1
-        : -1
-      : sourceSlotIndex + cols;
+  let targetIndex: number;
+  switch (direction) {
+    case 'left':
+      targetIndex = col > 0 ? sourceSlotIndex - 1 : -1;
+      break;
+    case 'right':
+      targetIndex = col + 1 < cols ? sourceSlotIndex + 1 : -1;
+      break;
+    case 'up':
+      targetIndex = sourceSlotIndex - cols;
+      break;
+    case 'down':
+      targetIndex = sourceSlotIndex + cols;
+      break;
+  }
+  if (targetIndex < 0 || targetIndex >= slotsPerPage) return null;
   const target = cells.find((c) => c.slotIndex === targetIndex);
-  if (targetIndex < 0 || !target) return null;
+  if (!target) return null;
+  // Already merged together — nothing to do, so no menu entry.
+  if (source.mergedGroupId !== null && source.mergedGroupId === target.mergedGroupId)
+    return null;
 
   const groupOf = (cell: MergeCell): MergeCell[] =>
     cell.mergedGroupId === null
       ? [cell]
       : cells.filter((c) => c.mergedGroupId === cell.mergedGroupId);
 
-  const union = new Map<number, MergeCell>();
-  for (const c of [...groupOf(source), ...groupOf(target)]) union.set(c.slotIndex, c);
-  const result = [...union.values()];
+  const seed = [...groupOf(source), ...groupOf(target)];
+  const positions = seed.map((c) => slotPosition(layout, c.slotIndex));
+  const minRow = Math.min(...positions.map((p) => p.row));
+  const maxRow = Math.max(...positions.map((p) => p.row));
+  const minCol = Math.min(...positions.map((p) => p.col));
+  const maxCol = Math.max(...positions.map((p) => p.col));
 
-  return isSolidRectangle(result.map((c) => c.slotIndex), layout) ? result : null;
+  const byIndex = new Map(cells.map((c) => [c.slotIndex, c]));
+  const result: MergeCell[] = [];
+  for (let r = minRow; r <= maxRow; r++) {
+    for (let c = minCol; c <= maxCol; c++) {
+      const cell = byIndex.get(slotIndexAt(layout, r, c));
+      if (!cell) return null;
+      result.push(cell);
+    }
+  }
+  // No merged group may extend beyond the rectangle we'd form.
+  const inside = new Set(result.map((c) => c.slotIndex));
+  for (const cell of result) {
+    if (cell.mergedGroupId === null) continue;
+    for (const member of groupOf(cell)) {
+      if (!inside.has(member.slotIndex)) return null;
+    }
+  }
+  return result;
+}
+
+/**
+ * Like mergeUnion, but the source is the whole group of the given slot:
+ * tries the merge from every member, so "merge right" works from a
+ * region's anchor even when the anchor isn't on the group's right edge.
+ */
+export function groupMergeUnion(
+  cells: MergeCell[],
+  layout: BinderLayout,
+  sourceSlotIndex: number,
+  direction: MergeDirection,
+): MergeCell[] | null {
+  const source = cells.find((c) => c.slotIndex === sourceSlotIndex);
+  if (!source) return null;
+  const members =
+    source.mergedGroupId === null
+      ? [source]
+      : cells.filter((c) => c.mergedGroupId === source.mergedGroupId);
+  for (const member of members) {
+    const union = mergeUnion(cells, layout, member.slotIndex, direction);
+    if (union) return union;
+  }
+  return null;
 }
 
 /** Rendering descriptors for every merged group on a page. */
