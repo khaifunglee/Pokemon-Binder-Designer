@@ -6,7 +6,36 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M3 code complete — remaining: device test + 60fps profiling pass (needs user), then M4 plan (needs user approval)
+## Status: M3 + perf/feature feedback round code complete — remaining: device re-test (esp. price accuracy), then M4 plan (needs user approval)
+
+## Perf + feature feedback round (2026-07-13) — all addressed
+
+User profiled on device (dev-mode Expo Go; note dev builds exaggerate JS
+costs). Four perf findings + two feature asks, all fixed:
+1. **Edge auto-flip up to 1s late** → dwell was only evaluated in the pan
+   onUpdate worklet, which fires on finger *movement*; a still finger
+   waited for the next micro-move. Now a `useFrameCallback` (active only
+   while dragging) checks dwell every UI frame.
+2. **Rapid chevron taps bounced back** (6 taps → 3 pages) →
+   `onMomentumScrollEnd` of interrupted programmatic scrolls reported
+   intermediate offsets and rewound `currentPageRef`. Fixed with
+   `pendingTargetRef`: momentum-ends are ignored until the target index
+   is reached; finger swipes (`onScrollBeginDrag`) clear the guard.
+   (Swipes intentionally use native scroll physics, no page-turn overlay
+   — user OK with it.)
+3. **Organize lagged before the shuffle** → planning/growth-check ran
+   before showing the overlay. Overlay now starts on tap; the >3-page
+   growth confirm fades it out and back in around the dialog.
+4. **Checklist taps ~500ms** → whole-list re-render + DB round-trip per
+   toggle. Rows are now `React.memo` and toggles flip an optimistic
+   `overrides` map synchronously (cleared when the live-query echo
+   lands), so feedback is immediate.
+Features: completion sections now render each set's FULL checklist in
+collector order — owned rows green with ✓ — with converted prices on
+every row (— when unpriced); checklist rows show prices too (loaded per
+visit with display currency + rate). statsService returns `entriesBySet`
+and `pricesUsd` for this.
+**Untested: price accuracy** (user hasn't compared against TCGplayer).
 
 ## M3 — code complete (approved plan incl. currency-converter tweak)
 
