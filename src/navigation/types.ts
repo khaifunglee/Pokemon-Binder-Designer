@@ -10,6 +10,8 @@ export type RootStackParamList = {
   Checklist: { setId: string };
   /** CSV import targeting a binder. */
   Import: { binderId: string };
+  /** Completion %, missing list, cost-to-complete. */
+  BinderStats: { binderId: string };
 };
 
 declare global {

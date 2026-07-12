@@ -170,6 +170,12 @@ export function BinderScreen({ route, navigation }: Props) {
       headerRight: () => (
         <View style={styles.headerRow}>
           <Pressable
+            onPress={() => navigation.navigate('BinderStats', { binderId })}
+            hitSlop={12}
+          >
+            <Text style={styles.headerBtn}>％</Text>
+          </Pressable>
+          <Pressable
             // 1-tap reorganize with the binder's strategy; long-press
             // (or tap while still 'custom') picks a strategy first.
             onPress={() =>

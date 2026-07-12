@@ -12,6 +12,7 @@ import { PickerSetsScreen } from './src/features/cards/PickerSetsScreen';
 import { ChecklistScreen } from './src/features/checklist/ChecklistScreen';
 import { ChecklistSetsScreen } from './src/features/checklist/ChecklistSetsScreen';
 import { ImportScreen } from './src/features/import/ImportScreen';
+import { StatsScreen } from './src/features/binders/StatsScreen';
 import type { RootStackParamList } from './src/navigation/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -61,6 +62,7 @@ export default function App() {
             component={ImportScreen}
             options={{ title: 'Import CSV', presentation: 'modal' }}
           />
+          <Stack.Screen name="BinderStats" component={StatsScreen} />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style="auto" />
