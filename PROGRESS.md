@@ -210,6 +210,19 @@ the card payload but we don't store them; likely a new column or table →
 ask user); sleeve/slide-in animation; 60fps profiling pass; export binder
 page as PNG.
 
+## Variant-visibility follow-up (2026-07-12)
+
+User reported variants still not visible after the fix. Two causes
+identified: (a) cel25 — the dev-seeded set — is genuinely all
+single-variant holofoil, so its checklist looks unchanged by design;
+(b) pokemontcg.io intermittently omits the tcgplayer block, so sets
+ingested during a hiccup stored single fallback variants and never
+refetched. Migration 0002 nulls all `cards_ingested_at` (one-time
+re-download per set on next open; offline keeps local rows), and the
+checklist header has a ↻ force-refresh (`ensureSetCards(force)`).
+Verify with SV base (sv1): Pineco #1 should show Normal + Reverse Holo
+rows. Awaiting user confirmation.
+
 ## Open items / blockers
 
 - **Feedback fixes not yet device-tested.** Suggested pass: merge in all
