@@ -38,6 +38,7 @@ interface ChecklistEntry {
 export function ChecklistScreen({ route, navigation }: Props) {
   const { setId } = route.params;
   const [downloading, setDownloading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,14 +98,32 @@ export function ChecklistScreen({ route, navigation }: Props) {
   useLayoutEffect(() => {
     navigation.setOptions({
       title: setRows?.[0]?.name ?? 'Checklist',
-      headerRight: () =>
-        entries.length > 0 ? (
-          <Text style={styles.headerCount}>
-            {ownedByKey.size}/{entries.length}
-          </Text>
-        ) : null,
+      headerRight: () => (
+        <View style={styles.headerRow}>
+          {entries.length > 0 && (
+            <Text style={styles.headerCount}>
+              {ownedByKey.size}/{entries.length}
+            </Text>
+          )}
+          <Pressable
+            hitSlop={10}
+            disabled={refreshing}
+            // Re-download the set's card data (variants, images, names).
+            onPress={() => {
+              setRefreshing(true);
+              void ensureSetCards(db, setId, { force: true })
+                .catch(() => {})
+                .finally(() => setRefreshing(false));
+            }}
+          >
+            <Text style={[styles.headerRefresh, refreshing && styles.headerRefreshOff]}>
+              ↻
+            </Text>
+          </Pressable>
+        </View>
+      ),
     });
-  }, [navigation, setRows, ownedByKey.size, entries.length]);
+  }, [navigation, setRows, ownedByKey.size, entries.length, refreshing, setId]);
 
   if (downloading && entries.length === 0) {
     return (
@@ -189,7 +208,10 @@ const styles = StyleSheet.create({
   list: { backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   hint: { color: '#999', textAlign: 'center' },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
   headerCount: { color: '#66bb6a', fontWeight: '700', fontSize: 15 },
+  headerRefresh: { color: '#e3350d', fontSize: 19, fontWeight: '600' },
+  headerRefreshOff: { color: '#cfd8dc' },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
