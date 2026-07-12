@@ -36,6 +36,30 @@ export function deriveVariants(
   return ['normal'];
 }
 
+export interface ExtractedPrice {
+  variant: string;
+  marketUsd: number;
+}
+
+/**
+ * Per-variant USD prices from a card's tcgplayer block. Prefers the
+ * market price, falling back to mid then low; variants without any
+ * usable number yield no row.
+ */
+export function extractPrices(
+  card: Pick<ApiCard, 'tcgplayer'>,
+): ExtractedPrice[] {
+  const prices = card.tcgplayer?.prices ?? {};
+  const out: ExtractedPrice[] = [];
+  for (const variant of KNOWN_VARIANTS) {
+    const entry = prices[variant];
+    if (!entry) continue;
+    const value = entry.market ?? entry.mid ?? entry.low;
+    if (value != null && value > 0) out.push({ variant, marketUsd: value });
+  }
+  return out;
+}
+
 export function mapApiSet(api: ApiSet): SetInsert {
   return {
     id: api.id,

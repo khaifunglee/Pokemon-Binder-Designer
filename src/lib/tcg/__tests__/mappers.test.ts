@@ -1,4 +1,4 @@
-import { deriveVariants, mapApiCard, mapApiSet } from '../mappers';
+import { deriveVariants, extractPrices, mapApiCard, mapApiSet } from '../mappers';
 import type { ApiCard, ApiSet } from '../types';
 
 const apiSet: ApiSet = {
@@ -65,6 +65,47 @@ describe('deriveVariants', () => {
   it('falls back to normal without rarity and never returns empty', () => {
     expect(deriveVariants({})).toEqual(['normal']);
     expect(deriveVariants({ tcgplayer: { prices: {} } })).toEqual(['normal']);
+  });
+});
+
+describe('extractPrices', () => {
+  it('extracts market price per variant in canonical order', () => {
+    expect(
+      extractPrices({
+        tcgplayer: {
+          prices: {
+            reverseHolofoil: { market: 0.25 },
+            normal: { market: 0.05 },
+          },
+        },
+      }),
+    ).toEqual([
+      { variant: 'normal', marketUsd: 0.05 },
+      { variant: 'reverseHolofoil', marketUsd: 0.25 },
+    ]);
+  });
+
+  it('falls back market → mid → low and skips unusable entries', () => {
+    expect(
+      extractPrices({
+        tcgplayer: {
+          prices: {
+            normal: { market: null, mid: 0.5 },
+            holofoil: { market: null, mid: null, low: 1.25 },
+            reverseHolofoil: { market: null, mid: null, low: null },
+            unlimited: {},
+          },
+        },
+      }),
+    ).toEqual([
+      { variant: 'normal', marketUsd: 0.5 },
+      { variant: 'holofoil', marketUsd: 1.25 },
+    ]);
+  });
+
+  it('returns empty without tcgplayer data', () => {
+    expect(extractPrices({})).toEqual([]);
+    expect(extractPrices({ tcgplayer: { prices: {} } })).toEqual([]);
   });
 });
 

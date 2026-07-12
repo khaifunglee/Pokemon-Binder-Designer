@@ -2,6 +2,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
   uniqueIndex,
@@ -125,6 +126,37 @@ export const collection = sqliteTable(
   (t) => [primaryKey({ columns: [t.cardId, t.variant] })],
 );
 
+/**
+ * Volatile price data, deliberately separate from the immutable card
+ * catalog: refreshes touch only these rows, and fetched_at drives
+ * TTL-based re-fetching. Canonical currency is USD (TCGplayer market).
+ */
+export const cardPrices = sqliteTable(
+  'card_prices',
+  {
+    cardId: text('card_id')
+      .notNull()
+      .references(() => cards.id),
+    variant: text('variant').notNull(),
+    marketUsd: real('market_usd').notNull(),
+    fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.cardId, t.variant] })],
+);
+
+/** USD-based exchange rates (ECB via frankfurter), refreshed on a TTL. */
+export const exchangeRates = sqliteTable('exchange_rates', {
+  currency: text('currency').primaryKey(), // ISO 4217, e.g. "EUR"
+  ratePerUsd: real('rate_per_usd').notNull(),
+  fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
+/** App-level key/value settings (e.g. display currency). */
+export const appSettings = sqliteTable('app_settings', {
+  key: text('key').primaryKey(),
+  value: text('value').notNull(),
+});
+
 export type SetRow = typeof sets.$inferSelect;
 export type SetInsert = typeof sets.$inferInsert;
 export type CardRow = typeof cards.$inferSelect;
@@ -134,3 +166,5 @@ export type BinderInsert = typeof binders.$inferInsert;
 export type PageRow = typeof pages.$inferSelect;
 export type SlotRow = typeof slots.$inferSelect;
 export type CollectionRow = typeof collection.$inferSelect;
+export type CardPriceRow = typeof cardPrices.$inferSelect;
+export type ExchangeRateRow = typeof exchangeRates.$inferSelect;

@@ -17,6 +17,14 @@ export interface ApiSet {
   };
 }
 
+export interface ApiPriceEntry {
+  low?: number | null;
+  mid?: number | null;
+  high?: number | null;
+  market?: number | null;
+  directLow?: number | null;
+}
+
 export interface ApiCard {
   id: string;
   name: string;
@@ -31,6 +39,6 @@ export interface ApiCard {
     large?: string;
   };
   tcgplayer?: {
-    prices?: Record<string, unknown>;
+    prices?: Record<string, ApiPriceEntry>;
   };
 }
