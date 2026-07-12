@@ -1,6 +1,6 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -16,6 +16,7 @@ import {
   cancelAnimation,
   Easing,
   runOnJS,
+  useFrameCallback,
   useSharedValue,
   withRepeat,
   withTiming,
@@ -84,6 +85,8 @@ export function BinderScreen({ route, navigation }: Props) {
   const pagerRef = useRef<View>(null);
   const geometryRef = useRef<GridGeometry | null>(null);
   const currentPageRef = useRef(0);
+  /** Target of an in-flight programmatic scroll; guards rapid taps. */
+  const pendingTargetRef = useRef<number | null>(null);
   const pagesRef = useRef<PageVM[]>(pages);
   pagesRef.current = pages;
   const draggingRef = useRef<PocketVM | null>(null);
@@ -99,14 +102,46 @@ export function BinderScreen({ route, navigation }: Props) {
   const shuffleProgress = useSharedValue(0);
   const [pagerHeight, setPagerHeight] = useState(0);
 
+  const endShuffle = useCallback(
+    (startedAt: number, success: boolean) => {
+      const remaining = Math.max(0, SHUFFLE_MIN_MS - (Date.now() - startedAt));
+      setTimeout(() => {
+        shuffleActive.value = withTiming(0, { duration: 250 });
+        if (success) {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+        }
+        // Unmount only after the fade-out completes.
+        setTimeout(() => {
+          cancelAnimation(shuffleProgress);
+          organizingRef.current = false;
+          setOrganizing(false);
+        }, 300);
+      }, remaining);
+    },
+    [shuffleActive, shuffleProgress],
+  );
+
   const runOrganize = useCallback(
     (strategy: SortStrategy) => {
       if (organizingRef.current) return;
+      // Shuffle starts on the tap — it IS the loading state; planning and
+      // the growth check happen underneath it.
+      organizingRef.current = true;
+      setOrganizing(true);
+      shuffleProgress.value = 0;
+      shuffleProgress.value = withRepeat(
+        withTiming(1, { duration: 1100, easing: Easing.linear }),
+        -1,
+      );
+      shuffleActive.value = withTiming(1, { duration: 150 });
+      const started = Date.now();
+
       void (async () => {
         // Gapped layouts (master-set/pokédex) can grow the binder a lot;
         // confirm before adding a noticeable number of pages.
         const growth = await organizePageGrowth(db, binderId, strategy).catch(() => 0);
         if (growth > 3) {
+          shuffleActive.value = withTiming(0, { duration: 150 });
           const proceed = await new Promise<boolean>((resolve) => {
             Alert.alert(
               'Grow binder?',
@@ -118,40 +153,26 @@ export function BinderScreen({ route, navigation }: Props) {
               { cancelable: true, onDismiss: () => resolve(false) },
             );
           });
-          if (!proceed) return;
+          if (!proceed) {
+            endShuffle(0, false); // fade already done; just clean up
+            return;
+          }
+          shuffleActive.value = withTiming(1, { duration: 150 });
         }
-        if (organizingRef.current) return;
-        organizingRef.current = true;
-        setOrganizing(true);
-        shuffleProgress.value = 0;
-        shuffleProgress.value = withRepeat(
-          withTiming(1, { duration: 1100, easing: Easing.linear }),
-          -1,
-        );
-        shuffleActive.value = withTiming(1, { duration: 150 });
-        const started = Date.now();
         try {
           await autoOrganize(db, binderId, strategy);
           // Reveal from the first page so the user can flip through.
           currentPageRef.current = 0;
+          pendingTargetRef.current = null;
           setCurrentPage(0);
           listRef.current?.scrollToOffset({ offset: 0, animated: false });
-        } finally {
-          const remaining = Math.max(0, SHUFFLE_MIN_MS - (Date.now() - started));
-          setTimeout(() => {
-            shuffleActive.value = withTiming(0, { duration: 250 });
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            // Unmount only after the fade-out completes.
-            setTimeout(() => {
-              cancelAnimation(shuffleProgress);
-              organizingRef.current = false;
-              setOrganizing(false);
-            }, 300);
-          }, remaining);
+          endShuffle(started, true);
+        } catch {
+          endShuffle(started, false);
         }
       })();
     },
-    [binderId, shuffleActive, shuffleProgress],
+    [binderId, shuffleActive, shuffleProgress, endShuffle],
   );
 
   const pickStrategy = useCallback(() => {
@@ -231,6 +252,7 @@ export function BinderScreen({ route, navigation }: Props) {
       turnProgress.value = 0;
       turnProgress.value = withTiming(1, { duration: 380 });
       currentPageRef.current = clamped;
+      pendingTargetRef.current = clamped;
       setCurrentPage(clamped);
       listRef.current?.scrollToIndex({ index: clamped, animated: true });
       void Haptics.selectionAsync();
@@ -330,15 +352,12 @@ export function BinderScreen({ route, navigation }: Props) {
     .onUpdate((e) => {
       dragX.value = e.absoluteX;
       dragY.value = e.absoluteY;
-      // Edge auto-flip: dwell near an edge to turn the page while dragging.
+      // Track which edge (if any) the finger is on; the frame callback
+      // below fires the flip so a *still* finger still triggers dwell.
       const dir = edgeDirection(e.absoluteX, windowWidth, EDGE_WIDTH);
-      const now = Date.now();
       if (dir !== edgeDir.value) {
         edgeDir.value = dir;
-        edgeSince.value = now;
-      } else if (dir !== 0 && now - edgeSince.value > EDGE_DWELL_MS) {
-        edgeSince.value = now + EDGE_COOLDOWN_MS - EDGE_DWELL_MS;
-        runOnJS(flipPage)(dir);
+        edgeSince.value = Date.now();
       }
     })
     .onEnd((e) => {
@@ -347,6 +366,24 @@ export function BinderScreen({ route, navigation }: Props) {
     .onFinalize(() => {
       runOnJS(cancelDrag)();
     });
+
+  // Edge-dwell watcher: checked every UI frame while dragging, so flips
+  // fire on schedule even when the finger rests motionless on the edge.
+  const edgeWatcher = useFrameCallback(() => {
+    if (dragActive.value !== 1) return;
+    const dir = edgeDir.value;
+    if (dir === 0) return;
+    const now = Date.now();
+    if (now - edgeSince.value > EDGE_DWELL_MS) {
+      edgeSince.value = now + EDGE_COOLDOWN_MS - EDGE_DWELL_MS;
+      runOnJS(flipPage)(dir);
+    }
+  }, false);
+  const edgeWatcherActive = dragging !== null;
+  useEffect(() => {
+    edgeWatcher.setActive(edgeWatcherActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [edgeWatcherActive]);
 
   if (!binder) return <View style={styles.container} />;
 
@@ -487,8 +524,18 @@ export function BinderScreen({ route, navigation }: Props) {
               offset: windowWidth * index,
               index,
             })}
+            onScrollBeginDrag={() => {
+              // Finger takes over: any programmatic target is void.
+              pendingTargetRef.current = null;
+            }}
             onMomentumScrollEnd={(e) => {
               const index = Math.round(e.nativeEvent.contentOffset.x / windowWidth);
+              // Interrupted programmatic scrolls report intermediate
+              // offsets; don't let them drag the page tracker backwards.
+              if (pendingTargetRef.current !== null) {
+                if (index !== pendingTargetRef.current) return;
+                pendingTargetRef.current = null;
+              }
               currentPageRef.current = index;
               setCurrentPage(index);
             }}
