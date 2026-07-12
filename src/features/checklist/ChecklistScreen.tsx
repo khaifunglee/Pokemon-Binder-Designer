@@ -3,7 +3,7 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -16,8 +16,10 @@ import {
 import { db } from '../../db/client';
 import { adjustOwnedQuantity, toggleOwned } from '../../db/collectionService';
 import { ensureSetCards } from '../../db/ingest';
-import { cards, collection, sets } from '../../db/schema';
+import { getDisplayCurrency, getRate } from '../../db/ratesService';
+import { cardPrices, cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
+import { convertUsd, formatCurrency } from '../../lib/currency';
 import type { RootStackParamList } from '../../navigation/types';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 import { variantLabel } from '../cards/variantLabels';
@@ -30,15 +32,76 @@ interface ChecklistEntry {
   variant: string;
 }
 
+interface RowProps {
+  card: CardRow;
+  variant: string;
+  /** Owned quantity; undefined = not owned. */
+  quantity: number | undefined;
+  priceLabel: string | null;
+  onToggle: (cardId: string, variant: string) => void;
+  onAdjust: (cardId: string, variant: string, delta: number) => void;
+}
+
+/** Memoized: a toggle re-renders only the row it changed. */
+const ChecklistRow = memo(function ChecklistRow({
+  card,
+  variant,
+  quantity,
+  priceLabel,
+  onToggle,
+  onAdjust,
+}: RowProps) {
+  const owned = quantity !== undefined;
+  return (
+    <Pressable
+      style={[styles.row, owned && styles.rowOwned]}
+      onPress={() => onToggle(card.id, variant)}
+    >
+      <Image
+        source={{ uri: card.imageSmallUri ?? undefined }}
+        style={styles.thumb}
+        contentFit="contain"
+        cachePolicy={CARD_IMAGE_CACHE_POLICY}
+      />
+      <View style={styles.rowText}>
+        <Text style={styles.rowTitle} numberOfLines={1}>
+          #{card.number} {card.name}
+        </Text>
+        <Text style={styles.rowSub}>
+          {variantLabel(variant)}
+          {card.rarity ? ` · ${card.rarity}` : ''}
+        </Text>
+      </View>
+      {priceLabel !== null && <Text style={styles.price}>{priceLabel}</Text>}
+      {owned ? (
+        <View style={styles.qtyControls}>
+          <Pressable hitSlop={8} onPress={() => onAdjust(card.id, variant, -1)}>
+            <Text style={styles.qtyBtn}>−</Text>
+          </Pressable>
+          <Text style={styles.qtyText}>{quantity}</Text>
+          <Pressable hitSlop={8} onPress={() => onAdjust(card.id, variant, 1)}>
+            <Text style={styles.qtyBtn}>＋</Text>
+          </Pressable>
+        </View>
+      ) : (
+        <View style={styles.checkbox} />
+      )}
+    </Pressable>
+  );
+});
+
 /**
- * Rapid multi-tap checklist: each row toggles owned instantly (writes are
- * synchronous-fast SQLite updates; the live query re-renders). Quantity
- * steppers appear on owned rows.
+ * Rapid multi-tap checklist. Taps update optimistic overrides
+ * synchronously (instant visual feedback) while the SQLite write and the
+ * live query confirm in the background.
  */
 export function ChecklistScreen({ route, navigation }: Props) {
   const { setId } = route.params;
   const [downloading, setDownloading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  /** key → optimistic quantity (null = not owned); cleared on DB echo. */
+  const [overrides, setOverrides] = useState<Map<string, number | null>>(new Map());
+  const [priceLabels, setPriceLabels] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     let cancelled = false;
@@ -49,6 +112,39 @@ export function ChecklistScreen({ route, navigation }: Props) {
       cancelled = true;
     };
   }, [setId]);
+
+  // Prices in the display currency; loaded once per visit (prices only
+  // change on TTL refresh, not while tapping through a checklist).
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const [rows, currency] = await Promise.all([
+        db
+          .select({
+            cardId: cardPrices.cardId,
+            variant: cardPrices.variant,
+            marketUsd: cardPrices.marketUsd,
+          })
+          .from(cardPrices)
+          .innerJoin(cards, eq(cardPrices.cardId, cards.id))
+          .where(eq(cards.setId, setId)),
+        getDisplayCurrency(db),
+      ]);
+      const rate = (await getRate(db, currency)) ?? 1;
+      if (cancelled) return;
+      setPriceLabels(
+        new Map(
+          rows.map((r) => [
+            `${r.cardId}::${r.variant}`,
+            formatCurrency(convertUsd(r.marketUsd, rate), currency),
+          ]),
+        ),
+      );
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [setId, downloading, refreshing]);
 
   const { data: setRows } = useLiveQuery(
     db.select().from(sets).where(eq(sets.id, setId)),
@@ -87,13 +183,63 @@ export function ChecklistScreen({ route, navigation }: Props) {
     [cardRows],
   );
 
-  const ownedByKey = useMemo(() => {
+  const dbOwnedByKey = useMemo(() => {
     const map = new Map<string, number>();
     for (const row of ownedRows ?? []) {
       map.set(`${row.cardId}::${row.variant}`, row.quantity);
     }
     return map;
   }, [ownedRows]);
+
+  // The DB echo arrived — optimistic state has served its purpose.
+  useEffect(() => {
+    setOverrides((prev) => (prev.size === 0 ? prev : new Map()));
+  }, [dbOwnedByKey]);
+
+  const quantityFor = useCallback(
+    (key: string): number | undefined => {
+      const override = overrides.get(key);
+      if (override !== undefined) return override ?? undefined;
+      return dbOwnedByKey.get(key);
+    },
+    [overrides, dbOwnedByKey],
+  );
+
+  const ownedCount = useMemo(() => {
+    let n = 0;
+    for (const e of entries) {
+      if (quantityFor(`${e.card.id}::${e.variant}`) !== undefined) n++;
+    }
+    return n;
+  }, [entries, quantityFor]);
+
+  const onToggle = useCallback(
+    (cardId: string, variant: string) => {
+      const key = `${cardId}::${variant}`;
+      setOverrides((prev) => {
+        const current =
+          prev.get(key) !== undefined ? prev.get(key) : dbOwnedByKey.get(key);
+        return new Map(prev).set(key, current == null ? 1 : null);
+      });
+      void toggleOwned(db, cardId, variant);
+      void Haptics.selectionAsync();
+    },
+    [dbOwnedByKey],
+  );
+
+  const onAdjust = useCallback(
+    (cardId: string, variant: string, delta: number) => {
+      const key = `${cardId}::${variant}`;
+      setOverrides((prev) => {
+        const current =
+          (prev.get(key) !== undefined ? prev.get(key) : dbOwnedByKey.get(key)) ?? 0;
+        const next = current + delta;
+        return new Map(prev).set(key, next <= 0 ? null : next);
+      });
+      void adjustOwnedQuantity(db, cardId, variant, delta);
+    },
+    [dbOwnedByKey],
+  );
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -102,13 +248,13 @@ export function ChecklistScreen({ route, navigation }: Props) {
         <View style={styles.headerRow}>
           {entries.length > 0 && (
             <Text style={styles.headerCount}>
-              {ownedByKey.size}/{entries.length}
+              {ownedCount}/{entries.length}
             </Text>
           )}
           <Pressable
             hitSlop={10}
             disabled={refreshing}
-            // Re-download the set's card data (variants, images, names).
+            // Re-download the set's card data (variants, images, prices).
             onPress={() => {
               setRefreshing(true);
               void ensureSetCards(db, setId, { force: true })
@@ -123,7 +269,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
         </View>
       ),
     });
-  }, [navigation, setRows, ownedByKey.size, entries.length, refreshing, setId]);
+  }, [navigation, setRows, ownedCount, entries.length, refreshing, setId]);
 
   if (downloading && entries.length === 0) {
     return (
@@ -149,55 +295,16 @@ export function ChecklistScreen({ route, navigation }: Props) {
       data={entries}
       keyExtractor={(e) => `${e.card.id}::${e.variant}`}
       renderItem={({ item }) => {
-        const quantity = ownedByKey.get(`${item.card.id}::${item.variant}`);
-        const owned = quantity !== undefined;
+        const key = `${item.card.id}::${item.variant}`;
         return (
-          <Pressable
-            style={[styles.row, owned && styles.rowOwned]}
-            onPress={() => {
-              void toggleOwned(db, item.card.id, item.variant);
-              void Haptics.selectionAsync();
-            }}
-          >
-            <Image
-              source={{ uri: item.card.imageSmallUri ?? undefined }}
-              style={styles.thumb}
-              contentFit="contain"
-              cachePolicy={CARD_IMAGE_CACHE_POLICY}
-            />
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle} numberOfLines={1}>
-                #{item.card.number} {item.card.name}
-              </Text>
-              <Text style={styles.rowSub}>
-                {variantLabel(item.variant)}
-                {item.card.rarity ? ` · ${item.card.rarity}` : ''}
-              </Text>
-            </View>
-            {owned ? (
-              <View style={styles.qtyControls}>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() =>
-                    void adjustOwnedQuantity(db, item.card.id, item.variant, -1)
-                  }
-                >
-                  <Text style={styles.qtyBtn}>−</Text>
-                </Pressable>
-                <Text style={styles.qtyText}>{quantity}</Text>
-                <Pressable
-                  hitSlop={8}
-                  onPress={() =>
-                    void adjustOwnedQuantity(db, item.card.id, item.variant, 1)
-                  }
-                >
-                  <Text style={styles.qtyBtn}>＋</Text>
-                </Pressable>
-              </View>
-            ) : (
-              <View style={styles.checkbox} />
-            )}
-          </Pressable>
+          <ChecklistRow
+            card={item.card}
+            variant={item.variant}
+            quantity={quantityFor(key)}
+            priceLabel={priceLabels.get(key) ?? null}
+            onToggle={onToggle}
+            onAdjust={onAdjust}
+          />
         );
       }}
     />
@@ -224,6 +331,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 14, fontWeight: '500' },
   rowSub: { fontSize: 12, color: '#999' },
+  price: { fontSize: 12, color: '#78909c', fontVariant: ['tabular-nums'] },
   checkbox: {
     width: 22,
     height: 22,
