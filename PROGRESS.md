@@ -6,7 +6,45 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M2 + smoke-test feedback fixes code complete (needs device re-test) — next: M3 plan (needs user approval)
+## Status: M3 code complete — remaining: device test + 60fps profiling pass (needs user), then M4 plan (needs user approval)
+
+## M3 — code complete (approved plan incl. currency-converter tweak)
+
+- **Prices**: `card_prices` (card_id, variant) PK, `market_usd`,
+  `fetched_at` — separate from the catalog on purpose (volatile data,
+  narrow updates, TTL refresh). Prices upsert on every set fetch (same
+  payload); `refreshSetPrices(db, setId)` re-fetches when older than 24h
+  (`PRICE_TTL_MS`). `extractPrices` maps tcgplayer entries with
+  market → mid → low fallback (tested). Migration 0003.
+- **Currency**: `exchange_rates` cached from frankfurter.dev (ECB, no
+  key) with 24h TTL; `app_settings` stores `displayCurrency`;
+  `src/lib/currency.ts` pure convert/format (Intl with fallback,
+  tested); `SUPPORTED_CURRENCIES` list in `ratesService.ts`. USD is
+  canonical — conversion happens at display time only.
+- **Completion**: `src/lib/binder/completion.ts` (pure, tested) —
+  per-set owned/missing vs full variant-level checklists +
+  cost-to-complete (unpriced entries counted separately).
+  `statsService.computeBinderStats` joins it all from SQLite.
+- **Stats UI**: ％ button in binder header → `StatsScreen`: overall %,
+  per-set sections with missing rows (number/name/variant), cost in the
+  chosen currency (header currency picker, persisted), "prices as of"
+  label, background TTL refresh of rates + per-set prices.
+- **Sleeve animation**: just-placed pocket (zustand `uiStore`
+  lastPlaced signal) plays a worklet entering animation — spring slide
+  into the clipped pocket + gloss sweep. Only that pocket animates.
+  (Note: Reanimated-only; CLAUDE.md named Skia for sleeve — a per-pocket
+  Skia canvas wasn't justified for a 500ms one-off. Flagged.)
+- **PNG export**: ⇪ in the binder footer captures the visible page
+  (react-native-view-shot on the pager view) → expo-sharing share sheet.
+  New deps (user-approved): react-native-view-shot 4.0.3, expo-sharing.
+- **60fps profiling pass: NOT DONE — needs user + device.** Checklist:
+  create a 4x4 binder, import a large CSV (several hundred rows) →
+  (1) drag & drop with edge auto-flip held down, (2) fast page swipes and
+  chevron page-turns, (3) one-tap organize (shuffle overlay) on the full
+  binder, (4) checklist rapid-tapping, (5) sleeve placement. Watch the
+  Expo perf monitor (shake → Show Perf Monitor): UI thread should hold
+  ~60, JS dips acceptable during organize commit only. Profile on a
+  low-end Android if available, per CLAUDE.md.
 
 ## Smoke-test feedback round (2026-07-12) — all addressed
 
@@ -202,13 +240,14 @@ UI:
   Merged/custom pockets are excluded from drag & drop (source and
   target), consistent with organize/import pinning.
 
-## Next: M3 (write plan, get user approval BEFORE implementing)
+## Next: M4 (write plan, get user approval BEFORE implementing)
 
-Per-binder completion % + missing-card list; cost-to-complete via price
-data (needs a price ingestion decision — TCG API tcgplayer prices are in
-the card payload but we don't store them; likely a new column or table →
-ask user); sleeve/slide-in animation; 60fps profiling pass; export binder
-page as PNG.
+"Mirror mode" — page-by-page capture of a physical binder (with
+skip-slot); re-sort diff engine producing a minimal, human-followable
+move list with batched moves ("shift slots 5–9 right by one").
+Logic-first candidates: the diff engine (current arrangement → target
+arrangement → move list) and move-batching/compaction — both pure and
+highly testable; they're the heart of the milestone.
 
 ## Variant-visibility follow-up (2026-07-12)
 
