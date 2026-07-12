@@ -1,9 +1,12 @@
 import { Image } from 'expo-image';
 import { StyleSheet, Pressable, Text, View } from 'react-native';
+import Animated, { withSpring, withTiming } from 'react-native-reanimated';
+import type { EntryAnimationsValues } from 'react-native-reanimated';
 
 import type { BinderLayout } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
 import { groupRegions, regionAnchorIndex } from '../../lib/binder/merge';
+import { useUiStore } from '../../state/uiStore';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 import type { PocketVM } from './useBinderSpread';
 
@@ -22,12 +25,44 @@ interface Props {
   onPocketLongPress?: (pocket: PocketVM) => void;
 }
 
+/** Card slides down into the pocket like entering a sleeve. */
+function sleeveIn(values: EntryAnimationsValues) {
+  'worklet';
+  return {
+    initialValues: {
+      transform: [{ translateY: -values.targetHeight * 0.85 }],
+    },
+    animations: {
+      transform: [
+        { translateY: withSpring(0, { damping: 16, stiffness: 140, mass: 0.7 }) },
+      ],
+    },
+  };
+}
+
+/** A gloss strip sweeping down as the card settles. */
+function sheenIn(values: EntryAnimationsValues) {
+  'worklet';
+  return {
+    initialValues: {
+      opacity: 0.35,
+      transform: [{ translateY: -values.targetHeight }],
+    },
+    animations: {
+      opacity: withTiming(0, { duration: 520 }),
+      transform: [{ translateY: withTiming(values.targetHeight, { duration: 520 }) }],
+    },
+  };
+}
+
 function PocketFace({
   pocket,
   hidden,
+  justPlaced = false,
 }: {
   pocket: PocketVM;
   hidden: boolean;
+  justPlaced?: boolean;
 }) {
   if (pocket.slot.customImageUri !== null) {
     return (
@@ -42,7 +77,7 @@ function PocketFace({
     );
   }
   if (pocket.slot.cardId !== null && !hidden) {
-    return (
+    const face = (
       <>
         <Image
           source={{ uri: pocket.imageSmallUri ?? pocket.imageLargeUri ?? undefined }}
@@ -58,6 +93,21 @@ function PocketFace({
           </View>
         )}
       </>
+    );
+    if (!justPlaced) return face;
+    // The pocket clips (overflow hidden), so the entering slide reads as
+    // the card sliding into its sleeve, with a gloss sweep on top.
+    return (
+      <Animated.View
+        key={`${pocket.slot.cardId}::${pocket.slot.variant}`}
+        entering={sleeveIn}
+        style={styles.sleeve}
+      >
+        {face}
+        <Animated.View entering={sheenIn} style={styles.sheenWrap} pointerEvents="none">
+          <View style={styles.sheen} />
+        </Animated.View>
+      </Animated.View>
     );
   }
   return <Text style={styles.plus}>＋</Text>;
@@ -75,6 +125,11 @@ export function PageGrid({
 }: Props) {
   const { rows, cols } = layoutSpec(layout);
   const pocketHeight = pocketWidth / CARD_ASPECT;
+
+  const lastPlacedSlotId = useUiStore((s) => s.lastPlacedSlotId);
+  const lastPlacedAt = useUiStore((s) => s.lastPlacedAt);
+  const justPlaced = (slotId: string) =>
+    slotId === lastPlacedSlotId && Date.now() - lastPlacedAt < 3000;
 
   const regions = groupRegions(
     pockets.map((p) => ({
@@ -118,7 +173,11 @@ export function PageGrid({
                   pocket.slot.id === highlightSlotId && styles.highlighted,
                 ]}
               >
-                <PocketFace pocket={pocket} hidden={pocket.slot.id === hiddenSlotId} />
+                <PocketFace
+                  pocket={pocket}
+                  hidden={pocket.slot.id === hiddenSlotId}
+                  justPlaced={justPlaced(pocket.slot.id)}
+                />
               </Pressable>
             );
           })}
@@ -149,7 +208,11 @@ export function PageGrid({
               },
             ]}
           >
-            <PocketFace pocket={anchor} hidden={false} />
+            <PocketFace
+              pocket={anchor}
+              hidden={false}
+              justPlaced={justPlaced(anchor.slot.id)}
+            />
           </Pressable>
         );
       })}
@@ -176,6 +239,17 @@ const styles = StyleSheet.create({
   },
   highlighted: { borderWidth: 2, borderStyle: 'solid', borderColor: '#e3350d' },
   cardImage: { width: '100%', height: '100%' },
+  sleeve: { width: '100%', height: '100%' },
+  sheenWrap: { ...StyleSheet.absoluteFillObject },
+  sheen: {
+    position: 'absolute',
+    top: 0,
+    left: '-20%',
+    width: '140%',
+    height: '35%',
+    backgroundColor: '#fff',
+    transform: [{ rotate: '-12deg' }],
+  },
   plus: { fontSize: 22, color: '#bbb' },
   qtyBadge: {
     position: 'absolute',

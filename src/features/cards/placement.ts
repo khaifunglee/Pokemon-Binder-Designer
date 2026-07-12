@@ -6,6 +6,7 @@ import { binders, pages, slots } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
 import { placeCard, setSlotQuantity } from '../../db/slots';
 import { resolvePlacement } from '../../lib/binder/stacking';
+import { useUiStore } from '../../state/uiStore';
 
 /**
  * Put a card in a pocket — the given variant, or its default (first) one.
@@ -40,11 +41,13 @@ export async function placeIntoSlot(
 
   if (resolution.action === 'stack') {
     await setSlotQuantity(db, resolution.slotId, resolution.newQuantity);
+    useUiStore.getState().notePlacement(resolution.slotId);
   } else {
     await placeCard(db, slotId, {
       cardId: card.id,
       variant: variant ?? card.variants[0] ?? 'normal',
     });
+    useUiStore.getState().notePlacement(slotId);
   }
   await touchBinder(db, binderId);
 }
