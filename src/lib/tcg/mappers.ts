@@ -17,8 +17,8 @@ export const KNOWN_VARIANTS = [
 
 /**
  * A card's printed variants, derived from which tcgplayer price entries
- * exist. Cards without price data fall back to a rarity heuristic; the
- * result always has at least one entry.
+ * exist. Cards without price data (brand-new sets lag by months) fall
+ * back to modern-era print rules by rarity; the result is never empty.
  */
 export function deriveVariants(
   card: Pick<ApiCard, 'rarity' | 'tcgplayer'>,
@@ -27,7 +27,12 @@ export function deriveVariants(
   const known = KNOWN_VARIANTS.filter((v) => v in prices);
   if (known.length > 0) return known;
 
-  if (card.rarity?.startsWith('Rare Holo')) return ['holofoil'];
+  const rarity = (card.rarity ?? '').toLowerCase();
+  if (rarity === 'common' || rarity === 'uncommon')
+    return ['normal', 'reverseHolofoil'];
+  if (rarity === 'rare' || rarity === 'rare holo')
+    return ['holofoil', 'reverseHolofoil'];
+  if (rarity !== '') return ['holofoil']; // double rare, ultra, illustration…
   return ['normal'];
 }
 

@@ -52,13 +52,17 @@ describe('deriveVariants', () => {
     ).toEqual(['holofoil']);
   });
 
-  it('falls back to holofoil for Rare Holo rarities without prices', () => {
-    expect(deriveVariants({ rarity: 'Rare Holo' })).toEqual(['holofoil']);
+  it('falls back to modern print rules by rarity without prices', () => {
+    expect(deriveVariants({ rarity: 'Common' })).toEqual(['normal', 'reverseHolofoil']);
+    expect(deriveVariants({ rarity: 'Uncommon' })).toEqual(['normal', 'reverseHolofoil']);
+    expect(deriveVariants({ rarity: 'Rare' })).toEqual(['holofoil', 'reverseHolofoil']);
+    expect(deriveVariants({ rarity: 'Rare Holo' })).toEqual(['holofoil', 'reverseHolofoil']);
     expect(deriveVariants({ rarity: 'Rare Holo VMAX' })).toEqual(['holofoil']);
+    expect(deriveVariants({ rarity: 'Double Rare' })).toEqual(['holofoil']);
+    expect(deriveVariants({ rarity: 'Special Illustration Rare' })).toEqual(['holofoil']);
   });
 
-  it('falls back to normal otherwise and never returns empty', () => {
-    expect(deriveVariants({ rarity: 'Common' })).toEqual(['normal']);
+  it('falls back to normal without rarity and never returns empty', () => {
     expect(deriveVariants({})).toEqual(['normal']);
     expect(deriveVariants({ tcgplayer: { prices: {} } })).toEqual(['normal']);
   });
