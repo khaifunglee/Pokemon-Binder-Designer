@@ -22,6 +22,8 @@ import {
 } from 'react-native-reanimated';
 
 import { randomUUID } from 'expo-crypto';
+import * as Sharing from 'expo-sharing';
+import { captureRef } from 'react-native-view-shot';
 
 import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
@@ -527,6 +529,26 @@ export function BinderScreen({ route, navigation }: Props) {
       <View style={styles.footer}>
         <View style={styles.pageNav}>
           <Pressable
+            hitSlop={12}
+            // Export the visible page as a PNG into the share sheet.
+            onPress={() => {
+              void (async () => {
+                try {
+                  const uri = await captureRef(pagerRef, {
+                    format: 'png',
+                    quality: 1,
+                    result: 'tmpfile',
+                  });
+                  await Sharing.shareAsync(uri, { mimeType: 'image/png' });
+                } catch {
+                  Alert.alert('Export failed', 'Could not capture this page.');
+                }
+              })();
+            }}
+          >
+            <Text style={styles.shareBtn}>⇪</Text>
+          </Pressable>
+          <Pressable
             onPress={() => goToPage(currentPageRef.current - 1)}
             hitSlop={12}
             disabled={currentPage === 0}
@@ -634,6 +656,7 @@ const styles = StyleSheet.create({
   },
   footer: { alignItems: 'center', paddingBottom: 16, gap: 8 },
   pageNav: { flexDirection: 'row', alignItems: 'center', gap: 20 },
+  shareBtn: { fontSize: 18, color: '#78909c' },
   pageArrow: { fontSize: 26, color: '#e3350d', lineHeight: 28 },
   pageArrowOff: { color: '#cfd8dc' },
   pageIndicator: { color: '#78909c', fontSize: 13 },
