@@ -1,10 +1,10 @@
-import { eq, isNotNull, sql } from 'drizzle-orm';
+import { eq, isNotNull, max, sql } from 'drizzle-orm';
 
 import { fetchAllSets, fetchCardsBySet } from '../lib/tcg/api';
-import { mapApiCard, mapApiSet } from '../lib/tcg/mappers';
+import { extractPrices, mapApiCard, mapApiSet } from '../lib/tcg/mappers';
 import type { ApiCard, ApiSet } from '../lib/tcg/types';
 import type { Db } from './client';
-import { cards, sets } from './schema';
+import { cardPrices, cards, sets } from './schema';
 
 // Stay well under SQLite's bound-variable limit per statement.
 const CHUNK_SIZE = 100;
@@ -67,11 +67,58 @@ export async function upsertSetCards(
           },
         });
     }
+    // Prices ride along in the same payload; keep card_prices current.
+    const now = new Date();
+    const priceRows = apiCards.flatMap((c) =>
+      extractPrices(c).map((p) => ({
+        cardId: c.id,
+        variant: p.variant,
+        marketUsd: p.marketUsd,
+        fetchedAt: now,
+      })),
+    );
+    for (const batch of chunk(priceRows, CHUNK_SIZE)) {
+      await tx
+        .insert(cardPrices)
+        .values(batch)
+        .onConflictDoUpdate({
+          target: [cardPrices.cardId, cardPrices.variant],
+          set: {
+            marketUsd: sql`excluded.market_usd`,
+            fetchedAt: sql`excluded.fetched_at`,
+          },
+        });
+    }
     await tx
       .update(sets)
       .set({ cardsIngestedAt: new Date() })
       .where(eq(sets.id, setId));
   });
+}
+
+export const PRICE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Re-fetch a set (cards + prices) when its prices are older than the TTL.
+ * Offline failures propagate — callers show stale data regardless, so
+ * they typically fire-and-forget this. Returns true when refreshed.
+ */
+export async function refreshSetPrices(
+  db: Db,
+  setId: string,
+  ttlMs: number = PRICE_TTL_MS,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ newest: max(cardPrices.fetchedAt) })
+    .from(cardPrices)
+    .innerJoin(cards, eq(cardPrices.cardId, cards.id))
+    .where(eq(cards.setId, setId));
+  if (row?.newest != null && Date.now() - row.newest.getTime() < ttlMs) {
+    return false;
+  }
+  const apiCards = await fetchCardsBySet(setId);
+  await upsertSetCards(db, setId, apiCards);
+  return true;
 }
 
 /**
