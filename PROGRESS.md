@@ -6,7 +6,35 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M2 code complete (needs device smoke test) — next: M3 plan (needs user approval)
+## Status: M2 + smoke-test feedback fixes code complete (needs device re-test) — next: M3 plan (needs user approval)
+
+## Smoke-test feedback round (2026-07-12) — all addressed
+
+User tested M1+M2 on device and reported five issues; fixes are in:
+1. **Variants invisible** → checklist now renders one row per (card,
+   variant) against collection's (card_id, variant) key; picker places
+   default variant on tap, long-press opens a variant menu
+   (`variantLabels.ts` for display names).
+2. **Stacking not retroactive** → toggling ON offers "stack existing
+   duplicates" (planConsolidate), OFF offers "unstack into separate
+   pockets" (planUnstack, grows binder; `src/db/stackingService.ts`);
+   dragging a card onto the same card stacks instead of swapping while
+   stacking is on.
+3. **Merge gaps** → all four directions (left/up added); menus evaluate
+   from every edge of the source group (groupMergeUnion) since region
+   taps land on the anchor; phantom same-group merges rejected;
+   mergeUnion now absorbs loose cells to complete the rectangle
+   (2x1 ↓ → 2x2) and rejects rectangles cutting other groups.
+4. **Sort UX** → organize jumps back to page 1 (scroll under the shuffle
+   overlay); confirm dialog before growing the binder by >3 pages.
+5. **Sort semantics** → buildSequence replaces compaction: master-set
+   lays out every card of each represented set in collector order (fresh
+   page per set, gaps = missing cards); pokédex leaves one gap per
+   missing dex number in the owned range (non-Pokémon on a fresh page
+   after); colour/rarity start each category on a new page (rarity uses
+   coarse keyword buckets: common/uncommon | rare | ultra (ex/V/GX/double
+   rare) | illustration/full-art/secret | promo/other — rarityBucket in
+   sort.ts). SortableEntry gained `cardId`.
 
 ## Approved decisions (user-confirmed)
 
@@ -184,11 +212,12 @@ page as PNG.
 
 ## Open items / blockers
 
-- **M2 not yet device-tested.** Suggested pass: organize a messy binder
-  by each strategy (shuffle plays, order correct, pinned pockets stay) →
-  checklist rapid-tap a set → import the fixture CSVs from
-  src/lib/import/__fixtures__ → merge 2x2 block, set custom image, verify
-  drag skips it → unmerge.
+- **Feedback fixes not yet device-tested.** Suggested pass: merge in all
+  four directions incl. from a region's edges; toggle stacking both ways
+  with duplicates present; drag same card onto same card with stacking
+  on; organize by master-set/pokédex (gaps + confirm dialog + back to
+  page 1) and colour/rarity (page per category); checklist variant rows;
+  picker long-press variant menu.
 - pkmnbindr/Collectr CSV formats are reconstructions — ask user for real
   export files to lock signatures and fixtures.
 - Merging pockets that already hold cards hides non-anchor contents (the
@@ -197,7 +226,8 @@ page as PNG.
   over filled pockets or auto-relocate their cards.
 - Import + variant stacking merges only within the import batch; it does
   not stack onto pockets already in the binder (documented MVP cut).
-- Variant selection UI: placement still uses the card's first variant.
+- Pokédex gaps span the owned dex range only (not the full national dex);
+  extra prints of one species shift later gap positions by design.
 - `pagesRef`/`currentPageRef` pattern assumes page list doesn't shrink
   mid-drag; page deletion still unbuilt, so safe.
 - No API key configured; unauthenticated rate limits fine for dev.
