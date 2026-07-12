@@ -20,8 +20,15 @@ import { cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
 import type { RootStackParamList } from '../../navigation/types';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { variantLabel } from '../cards/variantLabels';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checklist'>;
+
+/** One checklist row per printed variant of each card. */
+interface ChecklistEntry {
+  card: CardRow;
+  variant: string;
+}
 
 /**
  * Rapid multi-tap checklist: each row toggles owned instantly (writes are
@@ -67,41 +74,39 @@ export function ChecklistScreen({ route, navigation }: Props) {
     [setId],
   );
 
-  const ownedByCard = useMemo(() => {
-    const map = new Map<string, { variant: string; quantity: number }>();
+  // One row per (card, variant) — holos and reverses are tracked apart.
+  const entries = useMemo<ChecklistEntry[]>(
+    () =>
+      (cardRows ?? []).flatMap((card) =>
+        (card.variants.length > 0 ? card.variants : ['normal']).map((variant) => ({
+          card,
+          variant,
+        })),
+      ),
+    [cardRows],
+  );
+
+  const ownedByKey = useMemo(() => {
+    const map = new Map<string, number>();
     for (const row of ownedRows ?? []) {
-      const existing = map.get(row.cardId);
-      map.set(row.cardId, {
-        variant: row.variant,
-        quantity: (existing?.quantity ?? 0) + row.quantity,
-      });
+      map.set(`${row.cardId}::${row.variant}`, row.quantity);
     }
     return map;
   }, [ownedRows]);
 
   useLayoutEffect(() => {
-    const total = setRows?.[0]?.total;
     navigation.setOptions({
       title: setRows?.[0]?.name ?? 'Checklist',
       headerRight: () =>
-        total ? (
+        entries.length > 0 ? (
           <Text style={styles.headerCount}>
-            {ownedByCard.size}/{total}
+            {ownedByKey.size}/{entries.length}
           </Text>
         ) : null,
     });
-  }, [navigation, setRows, ownedByCard.size]);
+  }, [navigation, setRows, ownedByKey.size, entries.length]);
 
-  const defaultVariant = (card: CardRow) => card.variants[0] ?? 'normal';
-
-  const onToggle = (card: CardRow) => {
-    const owned = ownedByCard.get(card.id);
-    // Toggle whichever variant the user owns; default variant when none.
-    void toggleOwned(db, card.id, owned?.variant ?? defaultVariant(card));
-    void Haptics.selectionAsync();
-  };
-
-  if (downloading && (cardRows ?? []).length === 0) {
+  if (downloading && entries.length === 0) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
@@ -109,7 +114,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
       </View>
     );
   }
-  if ((cardRows ?? []).length === 0) {
+  if (entries.length === 0) {
     return (
       <View style={styles.center}>
         <Text style={styles.hint}>
@@ -122,42 +127,49 @@ export function ChecklistScreen({ route, navigation }: Props) {
   return (
     <FlatList
       style={styles.list}
-      data={cardRows ?? []}
-      keyExtractor={(c) => c.id}
+      data={entries}
+      keyExtractor={(e) => `${e.card.id}::${e.variant}`}
       renderItem={({ item }) => {
-        const owned = ownedByCard.get(item.id);
+        const quantity = ownedByKey.get(`${item.card.id}::${item.variant}`);
+        const owned = quantity !== undefined;
         return (
           <Pressable
             style={[styles.row, owned && styles.rowOwned]}
-            onPress={() => onToggle(item)}
+            onPress={() => {
+              void toggleOwned(db, item.card.id, item.variant);
+              void Haptics.selectionAsync();
+            }}
           >
             <Image
-              source={{ uri: item.imageSmallUri ?? undefined }}
+              source={{ uri: item.card.imageSmallUri ?? undefined }}
               style={styles.thumb}
               contentFit="contain"
               cachePolicy={CARD_IMAGE_CACHE_POLICY}
             />
             <View style={styles.rowText}>
               <Text style={styles.rowTitle} numberOfLines={1}>
-                #{item.number} {item.name}
+                #{item.card.number} {item.card.name}
               </Text>
-              <Text style={styles.rowSub}>{item.rarity ?? item.supertype}</Text>
+              <Text style={styles.rowSub}>
+                {variantLabel(item.variant)}
+                {item.card.rarity ? ` · ${item.card.rarity}` : ''}
+              </Text>
             </View>
             {owned ? (
               <View style={styles.qtyControls}>
                 <Pressable
                   hitSlop={8}
                   onPress={() =>
-                    void adjustOwnedQuantity(db, item.id, owned.variant, -1)
+                    void adjustOwnedQuantity(db, item.card.id, item.variant, -1)
                   }
                 >
                   <Text style={styles.qtyBtn}>−</Text>
                 </Pressable>
-                <Text style={styles.qtyText}>{owned.quantity}</Text>
+                <Text style={styles.qtyText}>{quantity}</Text>
                 <Pressable
                   hitSlop={8}
                   onPress={() =>
-                    void adjustOwnedQuantity(db, item.id, owned.variant, 1)
+                    void adjustOwnedQuantity(db, item.card.id, item.variant, 1)
                   }
                 >
                   <Text style={styles.qtyBtn}>＋</Text>

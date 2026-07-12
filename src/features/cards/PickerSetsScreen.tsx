@@ -4,6 +4,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import {
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -20,6 +21,7 @@ import { likePattern } from '../../lib/search';
 import type { RootStackParamList } from '../../navigation/types';
 import { CARD_IMAGE_CACHE_POLICY } from './images';
 import { placeIntoSlot } from './placement';
+import { variantLabel } from './variantLabels';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PickerSets'>;
 
@@ -49,9 +51,20 @@ export function PickerSetsScreen({ route, navigation }: Props) {
     };
   }, [query, searching]);
 
-  const pick = (card: CardRow) => {
-    void placeIntoSlot(db, binderId, slotId, card);
+  const pick = (card: CardRow, variant?: string) => {
+    void placeIntoSlot(db, binderId, slotId, card, variant);
     navigation.goBack();
+  };
+
+  const pickVariant = (card: CardRow) => {
+    if (card.variants.length < 2) return;
+    Alert.alert(card.name, 'Choose a variant', [
+      ...card.variants.map((variant) => ({
+        text: variantLabel(variant),
+        onPress: () => pick(card, variant),
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
   };
 
   return (
@@ -75,7 +88,11 @@ export function PickerSetsScreen({ route, navigation }: Props) {
             </Text>
           }
           renderItem={({ item }) => (
-            <Pressable style={styles.row} onPress={() => pick(item)}>
+            <Pressable
+              style={styles.row}
+              onPress={() => pick(item)}
+              onLongPress={() => pickVariant(item)}
+            >
               <Image
                 source={{ uri: item.imageSmallUri ?? undefined }}
                 style={styles.cardThumb}

@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -18,6 +19,7 @@ import type { CardRow } from '../../db/schema';
 import type { RootStackParamList } from '../../navigation/types';
 import { CARD_IMAGE_CACHE_POLICY } from './images';
 import { placeIntoSlot } from './placement';
+import { variantLabel } from './variantLabels';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PickerCards'>;
 
@@ -82,6 +84,24 @@ export function PickerCardsScreen({ route, navigation }: Props) {
           onPress={() => {
             void placeIntoSlot(db, binderId, slotId, item);
             navigation.pop(2); // back past the set picker to the binder
+          }}
+          onLongPress={() => {
+            // Variant choice; a plain tap places the default variant.
+            if (item.variants.length < 2) return;
+            Alert.alert(
+              item.name,
+              'Choose a variant',
+              [
+                ...item.variants.map((variant) => ({
+                  text: variantLabel(variant),
+                  onPress: () => {
+                    void placeIntoSlot(db, binderId, slotId, item, variant);
+                    navigation.pop(2);
+                  },
+                })),
+                { text: 'Cancel', style: 'cancel' as const },
+              ],
+            );
           }}
         >
           <Image

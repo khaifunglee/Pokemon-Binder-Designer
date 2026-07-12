@@ -8,15 +8,16 @@ import { placeCard, setSlotQuantity } from '../../db/slots';
 import { resolvePlacement } from '../../lib/binder/stacking';
 
 /**
- * Put a card in a pocket with its default (first) variant. When the
- * binder stacks variants, a card already in the binder bumps that
- * pocket's quantity instead of filling the tapped pocket.
+ * Put a card in a pocket — the given variant, or its default (first) one.
+ * When the binder stacks variants, a card already in the binder bumps
+ * that pocket's quantity instead of filling the tapped pocket.
  */
 export async function placeIntoSlot(
   db: Db,
   binderId: string,
   slotId: string,
   card: CardRow,
+  variant?: string,
 ): Promise<void> {
   const [binder] = await db
     .select({ variantStacking: binders.variantStacking })
@@ -42,7 +43,7 @@ export async function placeIntoSlot(
   } else {
     await placeCard(db, slotId, {
       cardId: card.id,
-      variant: card.variants[0] ?? 'normal',
+      variant: variant ?? card.variants[0] ?? 'normal',
     });
   }
   await touchBinder(db, binderId);
