@@ -10,12 +10,22 @@ export interface CardMeta {
   number: string;
 }
 
+export interface OwnedEntry {
+  cardId: string;
+  variant: string;
+  owned: boolean;
+}
+
 export interface BinderStats {
   summary: CompletionSummary;
   /** setId → display name, for the per-set sections. */
   setNames: Map<string, string>;
-  /** cardId → name/number, for rendering missing entries. */
+  /** cardId → name/number, for rendering entries. */
   cardMeta: Map<string, CardMeta>;
+  /** Full checklist per set, collector order, with ownership flags. */
+  entriesBySet: Map<string, OwnedEntry[]>;
+  /** (cardId::variant) → USD market price. */
+  pricesUsd: Map<string, number>;
   /** Newest price row among the binder's sets; null = no price data. */
   pricesFetchedAt: Date | null;
 }
@@ -41,6 +51,8 @@ export async function computeBinderStats(
       summary: { sets: [], total: 0, ownedCount: 0, costUsd: 0, unpricedCount: 0 },
       setNames: new Map(),
       cardMeta: new Map(),
+      entriesBySet: new Map(),
+      pricesUsd: new Map(),
       pricesFetchedAt: null,
     };
   }
@@ -101,10 +113,19 @@ export async function computeBinderStats(
     (releaseOrder.get(a.setId) ?? '') < (releaseOrder.get(b.setId) ?? '') ? -1 : 1,
   );
 
+  const entriesBySet = new Map(
+    orderedInputs.map((input) => [
+      input.setId,
+      input.entries.map((e) => ({ ...e, owned: ownedKeys.has(entryKey(e)) })),
+    ]),
+  );
+
   return {
     summary: computeCompletion(orderedInputs, ownedKeys, pricesUsd),
     setNames: new Map(setRows.map((s) => [s.id, s.name])),
     cardMeta,
+    entriesBySet,
+    pricesUsd,
     pricesFetchedAt: priceAge?.newest ?? null,
   };
 }

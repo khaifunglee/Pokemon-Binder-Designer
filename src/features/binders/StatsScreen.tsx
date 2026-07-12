@@ -20,9 +20,8 @@ import {
   SUPPORTED_CURRENCIES,
 } from '../../db/ratesService';
 import { computeBinderStats } from '../../db/statsService';
-import type { BinderStats } from '../../db/statsService';
-import { completionPercent } from '../../lib/binder/completion';
-import type { ChecklistEntryRef } from '../../lib/binder/completion';
+import type { BinderStats, OwnedEntry } from '../../db/statsService';
+import { completionPercent, entryKey } from '../../lib/binder/completion';
 import { convertUsd, formatCurrency } from '../../lib/currency';
 import type { RootStackParamList } from '../../navigation/types';
 import { variantLabel } from '../cards/variantLabels';
@@ -34,7 +33,8 @@ interface Section {
   ownedCount: number;
   total: number;
   costUsd: number;
-  data: ChecklistEntryRef[];
+  missingCount: number;
+  data: OwnedEntry[];
 }
 
 export function StatsScreen({ route, navigation }: Props) {
@@ -116,12 +116,14 @@ export function StatsScreen({ route, navigation }: Props) {
   const pct = completionPercent(summary.ownedCount, summary.total);
   const cost = (usd: number) => formatCurrency(convertUsd(usd, rate), currency);
 
+  // Full checklist per set (collector order), owned entries marked.
   const sections: Section[] = summary.sets.map((set) => ({
     title: stats.setNames.get(set.setId) ?? set.setId,
     ownedCount: set.ownedCount,
     total: set.total,
     costUsd: set.costUsd,
-    data: set.missing,
+    missingCount: set.missing.length,
+    data: stats.entriesBySet.get(set.setId) ?? [],
   }));
 
   return (
@@ -155,18 +157,29 @@ export function StatsScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>{section.title}</Text>
           <Text style={styles.sectionSub}>
             {section.ownedCount}/{section.total}
-            {section.data.length > 0 ? ` · missing ${cost(section.costUsd)}` : ' · complete ✓'}
+            {section.missingCount > 0
+              ? ` · missing ${cost(section.costUsd)}`
+              : ' · complete ✓'}
           </Text>
         </View>
       )}
       renderItem={({ item }) => {
         const meta = stats.cardMeta.get(item.cardId);
+        const priceUsd = stats.pricesUsd.get(entryKey(item));
         return (
           <View style={styles.row}>
-            <Text style={styles.rowTitle} numberOfLines={1}>
-              #{meta?.number ?? '?'} {meta?.name ?? item.cardId}
+            <Text
+              style={[styles.rowTitle, item.owned && styles.rowOwned]}
+              numberOfLines={1}
+            >
+              {item.owned ? '✓ ' : ''}#{meta?.number ?? '?'} {meta?.name ?? item.cardId}
             </Text>
-            <Text style={styles.rowVariant}>{variantLabel(item.variant)}</Text>
+            <Text style={[styles.rowVariant, item.owned && styles.rowOwned]}>
+              {variantLabel(item.variant)}
+            </Text>
+            <Text style={[styles.rowPrice, item.owned && styles.rowOwned]}>
+              {priceUsd !== undefined ? cost(priceUsd) : '—'}
+            </Text>
           </View>
         );
       }}
@@ -209,4 +222,12 @@ const styles = StyleSheet.create({
   },
   rowTitle: { flex: 1, fontSize: 13, color: '#333' },
   rowVariant: { fontSize: 12, color: '#999' },
+  rowPrice: {
+    fontSize: 12,
+    color: '#78909c',
+    minWidth: 56,
+    textAlign: 'right',
+    fontVariant: ['tabular-nums'],
+  },
+  rowOwned: { color: '#2e7d32' },
 });
