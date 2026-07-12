@@ -31,9 +31,11 @@ import {
   clearSlot,
   setCustomImage,
   setMergedGroup,
+  setSlotQuantity,
   swapSlotContents,
   unmergeGroup,
 } from '../../db/slots';
+import { consolidateDuplicates, unstackDuplicates } from '../../db/stackingService';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
 import { layoutSpec } from '../../lib/binder/layout';
@@ -211,10 +213,25 @@ export function BinderScreen({ route, navigation }: Props) {
     [goToPage],
   );
 
+  const stackingRef = useRef(false);
+  stackingRef.current = binder?.variantStacking ?? false;
+
   const finishSwap = useCallback(
     (source: PocketVM, target: PocketVM) => {
       if (target.slot.id === source.slot.id) return;
-      void swapSlotContents(db, source.slot, target.slot)
+      // Dropping onto the same card while stacking combines the pockets.
+      const stacks =
+        stackingRef.current &&
+        source.slot.cardId !== null &&
+        source.slot.cardId === target.slot.cardId;
+      const action = stacks
+        ? setSlotQuantity(
+            db,
+            target.slot.id,
+            target.slot.quantity + source.slot.quantity,
+          ).then(() => clearSlot(db, source.slot.id))
+        : swapSlotContents(db, source.slot, target.slot);
+      void action
         .then(() => touchBinder(db, binderId))
         .then(() => Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light));
     },
@@ -512,9 +529,50 @@ export function BinderScreen({ route, navigation }: Props) {
           <Text style={styles.stackingLabel}>Stack duplicates</Text>
           <Switch
             value={binder.variantStacking}
-            onValueChange={(value) =>
-              void updateBinder(db, binderId, { variantStacking: value })
-            }
+            onValueChange={(value) => {
+              void updateBinder(db, binderId, { variantStacking: value });
+              const pockets = pages.flatMap((p) => p.pockets);
+              const unpinned = pockets.filter(
+                (p) =>
+                  p.slot.mergedGroupId === null && p.slot.customImageUri === null,
+              );
+              if (value) {
+                const cardCounts = new Map<string, number>();
+                for (const p of unpinned) {
+                  if (p.slot.cardId)
+                    cardCounts.set(p.slot.cardId, (cardCounts.get(p.slot.cardId) ?? 0) + 1);
+                }
+                const dupes = [...cardCounts.values()].filter((n) => n > 1).length;
+                if (dupes > 0) {
+                  Alert.alert(
+                    'Stack existing duplicates?',
+                    `${dupes} card${dupes === 1 ? '' : 's'} appear in multiple pockets and can be combined.`,
+                    [
+                      { text: 'Not now', style: 'cancel' },
+                      {
+                        text: 'Stack them',
+                        onPress: () => void consolidateDuplicates(db, binderId),
+                      },
+                    ],
+                  );
+                }
+              } else {
+                const stacks = unpinned.filter((p) => p.slot.quantity > 1).length;
+                if (stacks > 0) {
+                  Alert.alert(
+                    'Unstack duplicates?',
+                    `${stacks} pocket${stacks === 1 ? '' : 's'} hold stacked copies; they can be split into separate pockets (pages are added if needed).`,
+                    [
+                      { text: 'Keep stacked', style: 'cancel' },
+                      {
+                        text: 'Unstack',
+                        onPress: () => void unstackDuplicates(db, binderId),
+                      },
+                    ],
+                  );
+                }
+              }
+            }}
           />
         </View>
       </View>
