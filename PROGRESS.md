@@ -6,7 +6,38 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M3 + perf/feature feedback round code complete — remaining: device re-test (esp. price accuracy), then M4 plan (needs user approval)
+## Status: M4 code complete — MVP feature-complete. Remaining: device test of M4 + price-accuracy spot-check; then polish/release prep only.
+
+## M4 — code complete (approved; variant stacks move as single units)
+
+- **Diff engine** `src/lib/binder/diff.ts` (tested with a step simulator):
+  `computeMoves(pockets, targetSources)` — targetOrdinal → sourceOrdinal
+  over binder-wide ordinals; phase 1 chains cards into pockets freed
+  just in time (worklist over empty pockets), phase 2 emits `swapCycle`
+  rings for mutual displacement (physically: one card in hand). Every
+  card touched exactly once. `batchInstructions` collapses chained
+  ±1 runs that stay on one page into `shift` instructions and 2-rings
+  into `swap`s; cross-page portions fall back to singles.
+- **Phrasing** `src/lib/binder/moveText.ts` (tested): 1-based
+  page/pocket wording; shifts name the safe starting end; rings become
+  step-by-step "take/put, taking out X" lists.
+- **Plan service** `src/db/movePlan.ts`: reuses `prepareOrganize` (now
+  exported) so the physical target equals the digital auto-organize
+  target (same buildSequence gaps/page groups); pinned pockets excluded;
+  new-page pockets appended as free targets; names carry stack size
+  ("Pikachu (stack of 3)").
+- **Mirror capture** (`MirrorCaptureScreen`, binder menu → "Mirror
+  capture…"): compact page preview with the current pocket highlighted,
+  name search fills + auto-advances, Skip pocket = skip-slot, Back,
+  pages auto-append when walking off the end, Done in header. Places
+  overwrite (re-capture friendly) and bypass variant stacking — mirror
+  captures physical layout verbatim. Long-press result = variant menu.
+- **Physical re-sort** (`MoveListScreen`, binder menu → "Physical
+  re-sort…" → strategy): checkable steps (add-pages step first when the
+  layout grows), progress in the footer button, and "Done — update the
+  app binder" commits via autoOrganize (deterministic same target).
+  Caveat: the binder shouldn't be edited digitally mid-checklist; the
+  commit recomputes rather than replays.
 
 ## Perf + feature feedback round (2026-07-13) — all addressed
 
@@ -280,14 +311,15 @@ UI:
   Merged/custom pockets are excluded from drag & drop (source and
   target), consistent with organize/import pinning.
 
-## Next: M4 (write plan, get user approval BEFORE implementing)
+## Next
 
-"Mirror mode" — page-by-page capture of a physical binder (with
-skip-slot); re-sort diff engine producing a minimal, human-followable
-move list with batched moves ("shift slots 5–9 right by one").
-Logic-first candidates: the diff engine (current arrangement → target
-arrangement → move list) and move-batching/compaction — both pure and
-highly testable; they're the heart of the milestone.
+MVP (M0–M4) is feature-complete. Remaining before calling it done:
+- Device test of M4: mirror-capture a few pages (incl. skips + variant
+  long-press), run a physical re-sort by master-set and by colour,
+  verify the move list is followable and the commit matches.
+- Price-accuracy spot-check vs tcgplayer.com (still pending from M3).
+- Then: release prep (icons/splash, app.json metadata, EAS build) and
+  any polish backlog — all Phase-2/OUT-of-scope features stay out.
 
 ## Variant-visibility follow-up (2026-07-12)
 
