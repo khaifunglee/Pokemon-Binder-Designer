@@ -6,7 +6,30 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M4 code complete — MVP feature-complete. Remaining: device test of M4 + price-accuracy spot-check; then polish/release prep only.
+## Status: M4 device-tested (capture + re-sort pass). MVP feature-complete. Remaining: verify checklist fix + new options on device; price-accuracy spot-check; then release prep.
+
+## M4 test feedback round (2026-07-13) — all addressed
+
+Device results: organize animates instantly ✓; mirror capture ✓ (only
+gap: no way to clear a pocket — fixed with an "Empty it" action);
+physical re-sort move list correct and commit matches ✓. Fixes:
+1. **Checklist flicker (1→0→1)**: previous fix cleared optimistic
+   overrides when the WRITE finished, but the live-query re-read lags
+   the write → rows flashed back. Overrides now clear per-key only when
+   the DB echo matches them, and collection writes are serialized
+   through a promise queue (rapid toggles can't interleave their
+   read-then-write). Failed writes drop their override (revert to
+   truth). NEEDS DEVICE RE-TEST.
+2. **Rarity buckets** now 8, ordered (sort.ts RARITY_BUCKETS, matchers
+   most-specific-first): commons/uncommons | rares | regular
+   ex/V/GX/VMAX (incl. Double Rare) | full arts/Ultra Rare |
+   Illustration Rare | Special Illustration Rare |
+   hyper/rainbow/secret/gold | promos+unknown.
+3. **Pokédex gaps option**: picking Pokédex (both the digital organize
+   picker and physical re-sort) asks "With gaps / No gaps"; persisted in
+   app_settings ('pokedexGaps'), reused by 1-tap ⇅ and move plans.
+   No-gaps = fully packed (SequenceContext.pokedexGaps=false), avoiding
+   blank-page blowup for sparse collections.
 
 ## M4 — code complete (approved; variant stacks move as single units)
 
