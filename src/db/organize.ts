@@ -10,7 +10,7 @@ import type { Db } from './client';
 import { binders, cards, pages, sets, slots } from './schema';
 import type { BinderRow, SortStrategy } from './schema';
 
-interface OrganizePrep {
+export interface OrganizePrep {
   binder: BinderRow;
   organizeSlots: OrganizeSlot[];
   sequence: (SortableEntry | null)[];
@@ -104,7 +104,7 @@ async function loadFullSets(
   }));
 }
 
-async function prepareOrganize(
+export async function prepareOrganize(
   db: Db,
   binderId: string,
   strategy: Exclude<SortStrategy, 'custom'>,
