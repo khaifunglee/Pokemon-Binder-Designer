@@ -199,16 +199,37 @@ export function ChecklistScreen({ route, navigation }: Props) {
     return map;
   }, [ownedRows]);
 
-  // Overrides live until EVERY in-flight write has settled — clearing on
-  // the first DB echo would visually revert rows whose writes are still
-  // pending, which reads as dropped taps during rapid toggling.
-  const pendingWrites = useRef(0);
-  const settleWrite = useCallback(() => {
-    pendingWrites.current--;
-    if (pendingWrites.current === 0) {
-      setOverrides((prev) => (prev.size === 0 ? prev : new Map()));
-    }
+  // Collection writes are serialized: toggleOwned/adjust read-then-write,
+  // so two in-flight calls could interleave their reads and corrupt the
+  // result under rapid tapping.
+  const writeQueue = useRef<Promise<unknown>>(Promise.resolve());
+  const enqueueWrite = useCallback((key: string, write: () => Promise<unknown>) => {
+    writeQueue.current = writeQueue.current.then(write).catch(() => {
+      // Write failed — drop the optimistic value so the row shows truth.
+      setOverrides((prev) => {
+        if (!prev.has(key)) return prev;
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+    });
   }, []);
+
+  // An override clears only when the DB echo CONFIRMS it. Clearing on
+  // write completion is too early (the live query re-read lags the
+  // write), which flashed rows back to their old value.
+  useEffect(() => {
+    setOverrides((prev) => {
+      if (prev.size === 0) return prev;
+      const next = new Map(prev);
+      for (const [key, value] of prev) {
+        const dbValue = dbOwnedByKey.get(key);
+        const confirmed = value === null ? dbValue === undefined : dbValue === value;
+        if (confirmed) next.delete(key);
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [dbOwnedByKey]);
 
   const quantityFor = useCallback(
     (key: string): number | undefined => {
@@ -235,11 +256,10 @@ export function ChecklistScreen({ route, navigation }: Props) {
           prev.get(key) !== undefined ? prev.get(key) : dbOwnedByKey.get(key);
         return new Map(prev).set(key, current == null ? 1 : null);
       });
-      pendingWrites.current++;
-      void toggleOwned(db, cardId, variant).finally(settleWrite);
+      enqueueWrite(key, () => toggleOwned(db, cardId, variant));
       void Haptics.selectionAsync();
     },
-    [dbOwnedByKey, settleWrite],
+    [dbOwnedByKey, enqueueWrite],
   );
 
   const onAdjust = useCallback(
@@ -251,10 +271,9 @@ export function ChecklistScreen({ route, navigation }: Props) {
         const next = current + delta;
         return new Map(prev).set(key, next <= 0 ? null : next);
       });
-      pendingWrites.current++;
-      void adjustOwnedQuantity(db, cardId, variant, delta).finally(settleWrite);
+      enqueueWrite(key, () => adjustOwnedQuantity(db, cardId, variant, delta));
     },
-    [dbOwnedByKey, settleWrite],
+    [dbOwnedByKey, enqueueWrite],
   );
 
   useLayoutEffect(() => {

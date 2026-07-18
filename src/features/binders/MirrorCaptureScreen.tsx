@@ -17,7 +17,7 @@ import { addPages, touchBinder } from '../../db/binders';
 import { searchCards } from '../../db/cards';
 import { db } from '../../db/client';
 import type { CardRow } from '../../db/schema';
-import { placeCard } from '../../db/slots';
+import { clearSlot, placeCard } from '../../db/slots';
 import { layoutSpec } from '../../lib/binder/layout';
 import { likePattern } from '../../lib/search';
 import type { RootStackParamList } from '../../navigation/types';
@@ -151,6 +151,21 @@ export function MirrorCaptureScreen({ route, navigation }: Props) {
             ‹ Back
           </Text>
         </Pressable>
+        {currentPocket?.slot.cardId != null && (
+          <Pressable
+            style={styles.controlBtn}
+            // The physical pocket is empty: clear the digital one too.
+            onPress={() => {
+              void clearSlot(db, currentPocket.slot.id).then(() =>
+                touchBinder(db, binderId),
+              );
+              void Haptics.selectionAsync();
+              advance();
+            }}
+          >
+            <Text style={styles.controlText}>Empty it</Text>
+          </Pressable>
+        )}
         <Pressable style={styles.controlBtn} onPress={advance}>
           <Text style={styles.controlText}>Skip pocket ›</Text>
         </Pressable>

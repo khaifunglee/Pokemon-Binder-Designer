@@ -108,22 +108,34 @@ export function dexRank(e: SortableEntry): number {
 }
 
 /**
- * Coarse rarity buckets for page-grouped organizing: commons/uncommons,
- * rares, ultras (ex/V/GX…), illustration/full-art/secret, promo/other.
- * Keyword-based — the API's rarity vocabulary keeps growing.
+ * Rarity buckets for page-grouped organizing, common → rarest. Matchers
+ * run in order (most specific first) — keyword-based because the API's
+ * rarity vocabulary keeps growing:
+ *   0 commons + uncommons          4 illustration rares
+ *   1 rares (holo, radiant…)       5 special illustration rares
+ *   2 regular ex/V/GX/VMAX…        6 hyper/rainbow/secret/gold
+ *   3 full arts / ultra rares      7 promos + unrecognized
  */
+const RARITY_BUCKETS: [RegExp, number][] = [
+  [/^(common|uncommon)$/, 0],
+  [/special illustration/, 5],
+  [/illustration/, 4],
+  [/(hyper|rainbow|secret|gold)/, 6],
+  [/(full art|ultra)/, 3],
+  [/(double rare|\bex\b|\bv\b|vmax|vstar|\bgx\b|prime|legend|break|ace spec|shiny)/, 2],
+  [/(rare|holo|radiant|amazing)/, 1],
+];
+
 export function rarityBucket(rarity: string | null): number {
-  if (rarity === null) return 4;
+  if (rarity === null) return 7;
   const r = rarity.toLowerCase();
-  if (r === 'common' || r === 'uncommon') return 0;
-  if (/(illustration|secret|hyper|rainbow|full art|gold|trainer gallery)/.test(r)) return 3;
-  if (/(double rare|\bex\b|\bv\b|vmax|vstar|\bgx\b|ultra|prime|legend|break|ace spec|shiny)/.test(r))
-    return 2;
-  if (/(rare|holo|radiant|amazing)/.test(r)) return 1;
-  return 4; // promos and anything unrecognized
+  for (const [pattern, bucket] of RARITY_BUCKETS) {
+    if (pattern.test(r)) return bucket;
+  }
+  return 7; // promos and anything unrecognized
 }
 
-export const RARITY_BUCKET_COUNT = 5;
+export const RARITY_BUCKET_COUNT = 8;
 
 function comparePokedex(a: SortableEntry, b: SortableEntry): number {
   const ra = dexRank(a);

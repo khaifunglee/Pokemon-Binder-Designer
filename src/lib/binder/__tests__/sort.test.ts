@@ -1,4 +1,4 @@
-import { sortEntries } from '../sort';
+import { rarityBucket, sortEntries } from '../sort';
 import type { SortableEntry } from '../sort';
 
 function entry(partial: Partial<SortableEntry> & { slotId: string }): SortableEntry {
@@ -97,6 +97,30 @@ describe('rarity', () => {
       'weird',
       'none',
     ]);
+  });
+});
+
+describe('rarityBucket', () => {
+  it('separates regular ex, full arts, IR, SIR, and hyper rares', () => {
+    expect(rarityBucket('Common')).toBe(0);
+    expect(rarityBucket('Uncommon')).toBe(0);
+    expect(rarityBucket('Rare')).toBe(1);
+    expect(rarityBucket('Rare Holo')).toBe(1);
+    expect(rarityBucket('Radiant Rare')).toBe(1);
+    expect(rarityBucket('Double Rare')).toBe(2); // regular ex
+    expect(rarityBucket('Rare Holo V')).toBe(2);
+    expect(rarityBucket('Rare Holo VMAX')).toBe(2);
+    expect(rarityBucket('Rare Holo GX')).toBe(2);
+    expect(rarityBucket('Ultra Rare')).toBe(3); // full-art ex etc.
+    expect(rarityBucket('Rare Ultra')).toBe(3);
+    expect(rarityBucket('Illustration Rare')).toBe(4);
+    expect(rarityBucket('Special Illustration Rare')).toBe(5);
+    expect(rarityBucket('Hyper Rare')).toBe(6);
+    expect(rarityBucket('Rare Rainbow')).toBe(6);
+    expect(rarityBucket('Rare Secret')).toBe(6);
+    expect(rarityBucket('Promo')).toBe(7);
+    expect(rarityBucket('Never Seen Rarity')).toBe(7);
+    expect(rarityBucket(null)).toBe(7);
   });
 });
 
