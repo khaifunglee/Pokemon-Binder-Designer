@@ -45,6 +45,12 @@ export interface SequenceContext {
    * master-set gaps. Sets without any binder entry are ignored.
    */
   fullSets: { setId: string; releaseDate: string; cardIds: string[] }[];
+  /**
+   * Pokédex only: leave one empty pocket per missing dex number
+   * (default) or pack cards without gaps. Sparse collections can
+   * otherwise produce many blank pages.
+   */
+  pokedexGaps?: boolean;
 }
 
 function padToPageBreak(seq: (SortableEntry | null)[], slotsPerPage: number): void {
@@ -106,6 +112,10 @@ export function buildSequence(
   }
 
   if (strategy === 'pokedex') {
+    if (ctx.pokedexGaps === false) {
+      // Packed: dex order with no blank pockets at all.
+      return sortEntries(entries, 'pokedex');
+    }
     const seq: (SortableEntry | null)[] = [];
     const pokemon = entries
       .filter((e) => dexRank(e) !== Number.POSITIVE_INFINITY)

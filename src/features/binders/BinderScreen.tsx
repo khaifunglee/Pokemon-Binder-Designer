@@ -49,6 +49,7 @@ import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { PageTurnOverlay } from './PageTurnOverlay';
+import { promptPokedexGaps } from './pokedexGapsPrompt';
 import { ShuffleOverlay } from './ShuffleOverlay';
 import { STRATEGY_LABELS } from './strategyLabels';
 import { useBinderSpread } from './useBinderSpread';
@@ -179,7 +180,10 @@ export function BinderScreen({ route, navigation }: Props) {
     Alert.alert('Organize by', undefined, [
       ...STRATEGY_LABELS.map(([strategy, label]) => ({
         text: label,
-        onPress: () => runOrganize(strategy),
+        onPress: () =>
+          strategy === 'pokedex'
+            ? promptPokedexGaps(() => runOrganize(strategy))
+            : runOrganize(strategy),
       })),
       { text: 'Cancel', style: 'cancel' as const },
     ]);

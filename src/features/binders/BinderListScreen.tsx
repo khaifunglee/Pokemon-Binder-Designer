@@ -15,6 +15,7 @@ import { binders } from '../../db/schema';
 import type { BinderRow } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
 import { BinderFormModal } from './BinderFormModal';
+import { promptPokedexGaps } from './pokedexGapsPrompt';
 import { STRATEGY_LABELS } from './strategyLabels';
 
 export function BinderListScreen() {
@@ -57,8 +58,12 @@ export function BinderListScreen() {
           Alert.alert('Re-sort your physical binder by', undefined, [
             ...STRATEGY_LABELS.map(([strategy, label]) => ({
               text: label,
-              onPress: () =>
-                navigation.navigate('ResortMoves', { binderId: binder.id, strategy }),
+              onPress: () => {
+                const go = () =>
+                  navigation.navigate('ResortMoves', { binderId: binder.id, strategy });
+                if (strategy === 'pokedex') promptPokedexGaps(go);
+                else go();
+              },
             })),
             { text: 'Cancel', style: 'cancel' as const },
           ]),

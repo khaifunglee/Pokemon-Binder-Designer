@@ -95,6 +95,17 @@ describe('buildSequence — pokedex gaps', () => {
     ]);
   });
 
+  it('packs without gaps when pokedexGaps is off', () => {
+    const entries = [
+      entry('s1', 'mew', { nationalPokedexNumbers: [151] }),
+      entry('s2', 'pika', { nationalPokedexNumbers: [25] }),
+      entry('s3', 'ball', { supertype: 'Trainer' }),
+    ];
+    expect(
+      ids(buildSequence(entries, 'pokedex', { ...ctx(), pokedexGaps: false })),
+    ).toEqual(['pika', 'mew', 'ball']);
+  });
+
   it('puts trainers/energies on a fresh page after the dex run', () => {
     const entries = [
       entry('s1', 'pika', { nationalPokedexNumbers: [25] }),

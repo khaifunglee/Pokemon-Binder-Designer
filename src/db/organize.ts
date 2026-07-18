@@ -8,6 +8,7 @@ import type { SortableEntry } from '../lib/binder/sort';
 import { addPages } from './binders';
 import type { Db } from './client';
 import { binders, cards, pages, sets, slots } from './schema';
+import { getPokedexGaps } from './settingsService';
 import type { BinderRow, SortStrategy } from './schema';
 
 export interface OrganizePrep {
@@ -122,8 +123,13 @@ export async function prepareOrganize(
     strategy === 'master-set'
       ? await loadFullSets(db, [...new Set(entries.map((e) => e.setId))])
       : [];
+  const pokedexGaps = strategy === 'pokedex' ? await getPokedexGaps(db) : true;
 
-  const sequence = buildSequence(entries, strategy, { slotsPerPage, fullSets });
+  const sequence = buildSequence(entries, strategy, {
+    slotsPerPage,
+    fullSets,
+    pokedexGaps,
+  });
   const movableCount = organizeSlots.filter((s) => !s.pinned).length;
   const pagesToAdd = Math.max(
     0,
