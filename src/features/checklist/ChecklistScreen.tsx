@@ -3,7 +3,15 @@ import { asc, eq, sql } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Haptics from 'expo-haptics';
 import { Image } from 'expo-image';
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -191,10 +199,16 @@ export function ChecklistScreen({ route, navigation }: Props) {
     return map;
   }, [ownedRows]);
 
-  // The DB echo arrived — optimistic state has served its purpose.
-  useEffect(() => {
-    setOverrides((prev) => (prev.size === 0 ? prev : new Map()));
-  }, [dbOwnedByKey]);
+  // Overrides live until EVERY in-flight write has settled — clearing on
+  // the first DB echo would visually revert rows whose writes are still
+  // pending, which reads as dropped taps during rapid toggling.
+  const pendingWrites = useRef(0);
+  const settleWrite = useCallback(() => {
+    pendingWrites.current--;
+    if (pendingWrites.current === 0) {
+      setOverrides((prev) => (prev.size === 0 ? prev : new Map()));
+    }
+  }, []);
 
   const quantityFor = useCallback(
     (key: string): number | undefined => {
@@ -221,10 +235,11 @@ export function ChecklistScreen({ route, navigation }: Props) {
           prev.get(key) !== undefined ? prev.get(key) : dbOwnedByKey.get(key);
         return new Map(prev).set(key, current == null ? 1 : null);
       });
-      void toggleOwned(db, cardId, variant);
+      pendingWrites.current++;
+      void toggleOwned(db, cardId, variant).finally(settleWrite);
       void Haptics.selectionAsync();
     },
-    [dbOwnedByKey],
+    [dbOwnedByKey, settleWrite],
   );
 
   const onAdjust = useCallback(
@@ -236,9 +251,10 @@ export function ChecklistScreen({ route, navigation }: Props) {
         const next = current + delta;
         return new Map(prev).set(key, next <= 0 ? null : next);
       });
-      void adjustOwnedQuantity(db, cardId, variant, delta);
+      pendingWrites.current++;
+      void adjustOwnedQuantity(db, cardId, variant, delta).finally(settleWrite);
     },
-    [dbOwnedByKey],
+    [dbOwnedByKey, settleWrite],
   );
 
   useLayoutEffect(() => {

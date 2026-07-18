@@ -137,6 +137,12 @@ export function BinderScreen({ route, navigation }: Props) {
       const started = Date.now();
 
       void (async () => {
+        // expo-sqlite executes synchronously on the JS thread, so without
+        // a real yield the whole plan+organize chain would run before
+        // React can even mount the overlay (microtasks beat commits).
+        // One frame's pause lets the shuffle appear and start looping on
+        // the UI thread, where the busy JS thread can't stall it.
+        await new Promise<void>((resolve) => setTimeout(resolve, 80));
         // Gapped layouts (master-set/pokédex) can grow the binder a lot;
         // confirm before adding a noticeable number of pages.
         const growth = await organizePageGrowth(db, binderId, strategy).catch(() => 0);
