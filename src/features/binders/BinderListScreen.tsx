@@ -15,6 +15,7 @@ import { binders } from '../../db/schema';
 import type { BinderRow } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
 import { BinderFormModal } from './BinderFormModal';
+import { STRATEGY_LABELS } from './strategyLabels';
 
 export function BinderListScreen() {
   const navigation = useNavigation();
@@ -45,6 +46,22 @@ export function BinderListScreen() {
       {
         text: 'Import CSV…',
         onPress: () => navigation.navigate('Import', { binderId: binder.id }),
+      },
+      {
+        text: 'Mirror capture…',
+        onPress: () => navigation.navigate('MirrorCapture', { binderId: binder.id }),
+      },
+      {
+        text: 'Physical re-sort…',
+        onPress: () =>
+          Alert.alert('Re-sort your physical binder by', undefined, [
+            ...STRATEGY_LABELS.map(([strategy, label]) => ({
+              text: label,
+              onPress: () =>
+                navigation.navigate('ResortMoves', { binderId: binder.id, strategy }),
+            })),
+            { text: 'Cancel', style: 'cancel' as const },
+          ]),
       },
       {
         text: 'Duplicate',

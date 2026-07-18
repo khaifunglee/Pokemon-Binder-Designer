@@ -50,6 +50,7 @@ import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { PageTurnOverlay } from './PageTurnOverlay';
 import { ShuffleOverlay } from './ShuffleOverlay';
+import { STRATEGY_LABELS } from './strategyLabels';
 import { useBinderSpread } from './useBinderSpread';
 import type { PageVM, PocketVM } from './useBinderSpread';
 
@@ -63,13 +64,6 @@ const EDGE_DWELL_MS = 450;
 const EDGE_COOLDOWN_MS = 650;
 /** The shuffle is the loading state; keep it visible at least this long. */
 const SHUFFLE_MIN_MS = 1200;
-
-const STRATEGY_LABELS: [SortStrategy, string][] = [
-  ['master-set', 'Master set'],
-  ['colour', 'Colour'],
-  ['pokedex', 'Pokédex'],
-  ['rarity', 'Rarity'],
-];
 
 export function BinderScreen({ route, navigation }: Props) {
   const { binderId } = route.params;

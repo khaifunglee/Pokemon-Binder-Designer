@@ -1,3 +1,5 @@
+import type { SortStrategy } from '../db/schema';
+
 export type RootStackParamList = {
   BinderList: undefined;
   Binder: { binderId: string };
@@ -12,6 +14,10 @@ export type RootStackParamList = {
   Import: { binderId: string };
   /** Completion %, missing list, cost-to-complete. */
   BinderStats: { binderId: string };
+  /** Mirror mode: pocket-by-pocket capture of a physical binder. */
+  MirrorCapture: { binderId: string };
+  /** Physical re-sort: checkable move list for a strategy. */
+  ResortMoves: { binderId: string; strategy: Exclude<SortStrategy, 'custom'> };
 };
 
 declare global {

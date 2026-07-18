@@ -12,6 +12,8 @@ import { PickerSetsScreen } from './src/features/cards/PickerSetsScreen';
 import { ChecklistScreen } from './src/features/checklist/ChecklistScreen';
 import { ChecklistSetsScreen } from './src/features/checklist/ChecklistSetsScreen';
 import { ImportScreen } from './src/features/import/ImportScreen';
+import { MirrorCaptureScreen } from './src/features/binders/MirrorCaptureScreen';
+import { MoveListScreen } from './src/features/binders/MoveListScreen';
 import { StatsScreen } from './src/features/binders/StatsScreen';
 import type { RootStackParamList } from './src/navigation/types';
 
@@ -63,6 +65,8 @@ export default function App() {
             options={{ title: 'Import CSV', presentation: 'modal' }}
           />
           <Stack.Screen name="BinderStats" component={StatsScreen} />
+          <Stack.Screen name="MirrorCapture" component={MirrorCaptureScreen} />
+          <Stack.Screen name="ResortMoves" component={MoveListScreen} />
         </Stack.Navigator>
       </NavigationContainer>
       <StatusBar style="auto" />
