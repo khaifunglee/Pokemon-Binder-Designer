@@ -357,6 +357,21 @@ checklist header has a ↻ force-refresh (`ensureSetCards(force)`).
 Verify with SV base (sv1): Pineco #1 should show Normal + Reverse Holo
 rows. Awaiting user confirmation.
 
+## Known upstream data limitation (verified 2026-07-13)
+
+All card/set/price data comes from pokemontcg.io (CLAUDE.md-mandated);
+prices are the `tcgplayer.prices` block embedded in card payloads —
+synced by THAT api from TCGplayer, not fetched from TCGplayer by us.
+Verified live: Mega-era sets lag upstream — Ascended Heroes (me2pt5)
+has only 295 cards in the API (its own set record says 295, so no
+refetch can find more; the app has all of them — the "439" a checklist
+shows is card×variant entries), and me2pt5/me4 (Chaos Rising)/me5
+(Pitch Black) have ZERO tcgplayer AND zero cardmarket price blocks even
+though tcgplayer.com shows prices. Self-heals: checklist ↻ and the 24h
+price TTL re-pull full payloads once upstream syncs. Alternatives
+(official TCGplayer API = partner approval; third-party price APIs =
+paid) deliberately not pursued in MVP; user informed.
+
 ## Open items / blockers
 
 - **Feedback fixes not yet device-tested.** Suggested pass: merge in all
