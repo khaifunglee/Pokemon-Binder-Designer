@@ -37,6 +37,17 @@ visit with display currency + rate). statsService returns `entriesBySet`
 and `pricesUsd` for this.
 **Untested: price accuracy** (user hasn't compared against TCGplayer).
 
+Second pass (2026-07-13): two stragglers fixed in a42ccad —
+(3b) organize without the confirm dialog hung before animating: the
+expo-sqlite driver runs queries synchronously on the JS thread, so the
+plan+organize microtask chain finished before React could mount the
+overlay (the Alert was an accidental async boundary). runOrganize now
+yields ~80ms after starting the shuffle. (4b) rapid checklist taps
+looked dropped: the first DB echo cleared ALL optimistic overrides,
+reverting rows with writes still in flight. Overrides now clear only
+when a pending-write counter hits zero. **M4 plan approved to write;
+present for approval before implementing.**
+
 ## M3 — code complete (approved plan incl. currency-converter tweak)
 
 - **Prices**: `card_prices` (card_id, variant) PK, `market_usd`,
