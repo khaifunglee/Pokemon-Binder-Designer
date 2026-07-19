@@ -357,6 +357,43 @@ checklist header has a ↻ force-refresh (`ensureSetCards(force)`).
 Verify with SV base (sv1): Pineco #1 should show Normal + Reverse Holo
 rows. Awaiting user confirmation.
 
+## M5 — TCGdex migration (2026-07-19, user-approved "full migration") — code complete, NEEDS DEVICE TEST
+
+pokemontcg.io stalled (team moved to paid Scrydex, $29/mo minimum, no
+free tier). User chose full migration to TCGdex (free, keyless, open
+source; verified live per-variant TCGplayer prices for Mega-era sets
+that pokemontcg.io lacks; card counts match ptcgio for shared sets).
+
+- `src/lib/tcgdex/` — types (pinned against live payloads 2026-07-19),
+  mappers (variants from explicit flags: normal/holo/reverse/
+  firstEdition; category 'Pokemon'→'Pokémon'; images = asset base +
+  '/low.webp'|'/high.webp', set assets + '.webp'; prices from hyphenated
+  tcgplayer keys, market→mid→low; abbreviation.official → ptcgo_code),
+  api client with 6-wide pooled fetches. TCGdex quirks: set briefs have
+  NO releaseDate (details do, 'YYYY-MM-DD'); card data is per-card
+  detail requests (~N per set ingest, progress callback supported);
+  rarity strings differ in case ('Double rare') — rarityBucket
+  lowercases so buckets work; RARITY_ORDER exact-match ladder may miss
+  (cosmetic within-bucket ordering only).
+- Ingestion: ingestSets = brief diff + details for new ids only;
+  ensureSetCards = set detail + pooled card details → atomic upsert of
+  cards+prices+set (cardsIngestedAt); refreshSetPrices = TTL + force
+  ensure (prices ride in card details).
+- **One-time migration** `src/db/migrateToTcgdex.ts`, gated by
+  app_settings 'catalogSource'='tcgdex' in useDbReady: fetches all ~218
+  set details, maps old sets by lowercase name, remaps referenced card
+  ids by numberKey(collector number), inserts placeholder card rows
+  (variants=[] until set re-ingested), rewrites slots/collection in one
+  transaction, drops old cards/cardPrices/sets. Unmappable references
+  cleared (count returned). Offline → deferred to next launch (gate
+  shows 'Upgrading card database…'; ingestSets skipped while
+  unmigrated to avoid a mixed catalog). devSeed + src/lib/tcg retired.
+- **Device test needed**: first launch runs the migration (needs
+  network, ~1-2 min for 218 set details); verify binders/collection
+  survived, open a checklist (re-downloads full set per-card — slower
+  than before, spinner shows), check Mega-era prices now appear, CSV
+  import still matches TCGplayer set codes.
+
 ## Known upstream data limitation (verified 2026-07-13)
 
 All card/set/price data comes from pokemontcg.io (CLAUDE.md-mandated);
