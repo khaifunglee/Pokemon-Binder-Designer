@@ -1,10 +1,16 @@
-import { eq, isNotNull, max, sql } from 'drizzle-orm';
+import { eq, max, sql } from 'drizzle-orm';
 
-import { fetchAllSets, fetchCardsBySet } from '../lib/tcg/api';
-import { extractPrices, mapApiCard, mapApiSet } from '../lib/tcg/mappers';
-import type { ApiCard, ApiSet } from '../lib/tcg/types';
+import {
+  fetchCardDetails,
+  fetchSetBriefs,
+  fetchSetDetail,
+  fetchSetDetails,
+} from '../lib/tcgdex/api';
+import { extractPrices, mapCardDetail, mapSetDetail } from '../lib/tcgdex/mappers';
+import type { DexSetDetail } from '../lib/tcgdex/types';
 import type { Db } from './client';
 import { cardPrices, cards, sets } from './schema';
+import type { SetInsert } from './schema';
 
 // Stay well under SQLite's bound-variable limit per statement.
 const CHUNK_SIZE = 100;
@@ -15,8 +21,8 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
-export async function upsertSets(db: Db, apiSets: ApiSet[]): Promise<void> {
-  const rows = apiSets.map(mapApiSet);
+export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
+  if (rows.length === 0) return;
   await db.transaction(async (tx) => {
     for (const batch of chunk(rows, CHUNK_SIZE)) {
       await tx
@@ -40,14 +46,36 @@ export async function upsertSets(db: Db, apiSets: ApiSet[]): Promise<void> {
   });
 }
 
-export async function upsertSetCards(
+/**
+ * Refresh the sets catalog: cheap brief listing, then full details only
+ * for sets we don't have yet (details carry release dates). Runs in the
+ * background at launch; the UI never waits on it.
+ */
+export async function ingestSets(db: Db): Promise<number> {
+  const briefs = await fetchSetBriefs();
+  const known = new Set(
+    (await db.select({ id: sets.id }).from(sets)).map((r) => r.id),
+  );
+  const missing = briefs.filter((b) => !known.has(b.id)).map((b) => b.id);
+  if (missing.length === 0) return 0;
+  const details = await fetchSetDetails(missing);
+  await upsertSets(db, details.map(mapSetDetail));
+  return missing.length;
+}
+
+export interface IngestProgress {
+  (done: number, total: number): void;
+}
+
+async function upsertSetPayload(
   db: Db,
-  setId: string,
-  apiCards: ApiCard[],
+  detail: DexSetDetail,
+  cardRows: ReturnType<typeof mapCardDetail>[],
+  priceRows: { cardId: string; variant: string; marketUsd: number }[],
 ): Promise<void> {
-  const rows = apiCards.map(mapApiCard);
+  const now = new Date();
   await db.transaction(async (tx) => {
-    for (const batch of chunk(rows, CHUNK_SIZE)) {
+    for (const batch of chunk(cardRows, CHUNK_SIZE)) {
       await tx
         .insert(cards)
         .values(batch)
@@ -67,17 +95,10 @@ export async function upsertSetCards(
           },
         });
     }
-    // Prices ride along in the same payload; keep card_prices current.
-    const now = new Date();
-    const priceRows = apiCards.flatMap((c) =>
-      extractPrices(c).map((p) => ({
-        cardId: c.id,
-        variant: p.variant,
-        marketUsd: p.marketUsd,
-        fetchedAt: now,
-      })),
-    );
-    for (const batch of chunk(priceRows, CHUNK_SIZE)) {
+    for (const batch of chunk(
+      priceRows.map((p) => ({ ...p, fetchedAt: now })),
+      CHUNK_SIZE,
+    )) {
       await tx
         .insert(cardPrices)
         .values(batch)
@@ -89,19 +110,65 @@ export async function upsertSetCards(
           },
         });
     }
+    const setRow = mapSetDetail(detail);
     await tx
-      .update(sets)
-      .set({ cardsIngestedAt: new Date() })
-      .where(eq(sets.id, setId));
+      .insert(sets)
+      .values({ ...setRow, cardsIngestedAt: now })
+      .onConflictDoUpdate({
+        target: sets.id,
+        set: {
+          name: sql`excluded.name`,
+          series: sql`excluded.series`,
+          printedTotal: sql`excluded.printed_total`,
+          total: sql`excluded.total`,
+          releaseDate: sql`excluded.release_date`,
+          ptcgoCode: sql`excluded.ptcgo_code`,
+          symbolUri: sql`excluded.symbol_uri`,
+          logoUri: sql`excluded.logo_uri`,
+          cardsIngestedAt: sql`excluded.cards_ingested_at`,
+        },
+      });
   });
+}
+
+/**
+ * Ensure a set's full card data (details + prices) is in SQLite. TCGdex
+ * serves card details per card, so this issues one pooled request per
+ * card — report progress via `onProgress`. No-op once ingested unless
+ * forced; all-or-nothing on failure (offline keeps whatever is local).
+ */
+export async function ensureSetCards(
+  db: Db,
+  setId: string,
+  opts: { force?: boolean; onProgress?: IngestProgress } = {},
+): Promise<void> {
+  if (!opts.force) {
+    const [row] = await db
+      .select({ ingestedAt: sets.cardsIngestedAt })
+      .from(sets)
+      .where(eq(sets.id, setId));
+    if (row?.ingestedAt != null) return;
+  }
+  const detail = await fetchSetDetail(setId);
+  const details = await fetchCardDetails(
+    detail.cards.map((c) => c.id),
+    opts.onProgress,
+  );
+  await upsertSetPayload(
+    db,
+    detail,
+    details.map(mapCardDetail),
+    details.flatMap((c) =>
+      extractPrices(c).map((p) => ({ cardId: c.id, ...p })),
+    ),
+  );
 }
 
 export const PRICE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Re-fetch a set (cards + prices) when its prices are older than the TTL.
- * Offline failures propagate — callers show stale data regardless, so
- * they typically fire-and-forget this. Returns true when refreshed.
+ * Re-fetch a set (cards + prices arrive together) when its prices are
+ * older than the TTL. Returns true when refreshed.
  */
 export async function refreshSetPrices(
   db: Db,
@@ -116,46 +183,15 @@ export async function refreshSetPrices(
   if (row?.newest != null && Date.now() - row.newest.getTime() < ttlMs) {
     return false;
   }
-  const apiCards = await fetchCardsBySet(setId);
-  await upsertSetCards(db, setId, apiCards);
+  await ensureSetCards(db, setId, { force: true });
   return true;
 }
 
-/**
- * Refresh the sets catalog from the network. Cheap (~160 rows); intended to
- * run in the background at launch. Failures are the caller's concern — the
- * UI must keep working from whatever is already in SQLite.
- */
-export async function ingestSets(db: Db): Promise<number> {
-  const apiSets = await fetchAllSets();
-  await upsertSets(db, apiSets);
-  return apiSets.length;
-}
-
-/**
- * Ensure a set's cards are in SQLite, fetching them once on demand.
- * No-op when already ingested (offline-safe) unless `force` is set.
- */
-export async function ensureSetCards(
-  db: Db,
-  setId: string,
-  opts: { force?: boolean } = {},
-): Promise<void> {
-  if (!opts.force) {
-    const [row] = await db
-      .select({ ingestedAt: sets.cardsIngestedAt })
-      .from(sets)
-      .where(eq(sets.id, setId));
-    if (row?.ingestedAt != null) return;
-  }
-  const apiCards = await fetchCardsBySet(setId);
-  await upsertSetCards(db, setId, apiCards);
-}
-
+/** Sets whose card data has been fully ingested. */
 export async function listIngestedSetIds(db: Db): Promise<string[]> {
   const rows = await db
     .select({ id: sets.id })
     .from(sets)
-    .where(isNotNull(sets.cardsIngestedAt));
+    .where(sql`${sets.cardsIngestedAt} IS NOT NULL`);
   return rows.map((r) => r.id);
 }

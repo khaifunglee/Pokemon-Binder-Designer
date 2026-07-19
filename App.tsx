@@ -20,7 +20,7 @@ import type { RootStackParamList } from './src/navigation/types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const { ready, error } = useDbReady();
+  const { ready, error, status } = useDbReady();
 
   if (error) {
     return (
@@ -30,7 +30,11 @@ export default function App() {
     );
   }
   if (!ready) {
-    return <View style={styles.gate} />;
+    return (
+      <View style={styles.gate}>
+        {status !== null && <Text style={styles.gateStatus}>{status}</Text>}
+      </View>
+    );
   }
 
   return (
@@ -81,5 +85,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 10,
   },
+  gateStatus: { color: '#78909c', fontSize: 14 },
 });
