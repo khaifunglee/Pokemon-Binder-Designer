@@ -87,7 +87,20 @@ mode with a physical re-sort move list.
 
 ## Commands
 
+- `npm ci` — install from lockfile (prefer over `npm install`)
 - `npx expo start` — dev server
 - `npx tsc --noEmit` — typecheck
 - `npm test` — unit tests
 - `npx drizzle-kit generate` — DB migrations
+- `npx expo export --platform ios` — bundle smoke test (catches Metro resolution errors)
+- `npx expo install --check` — Expo SDK version alignment (currently flags expo-file-system 19.0.23 vs ~19.0.24)
+- Lint: none — no ESLint configured; `tsc` is the only static check
+
+## Gotchas
+
+- Never `npm audit fix --force`: it jumps Expo SDK majors and breaks Metro, tsc and Jest
+  at once. Plain `npm audit fix` is safe; remaining findings are build tooling only.
+- SDK 54 is pinned on purpose (Expo Go). `react-native-worklets` must be EXACTLY the
+  version in `node_modules/expo/bundledNativeModules.json` (0.5.1 on SDK 54) — re-check on any SDK change.
+- Don't add `expo-image` to `app.json` plugins on SDK 54 (no config plugin; breaks start/export).
+- Roadmap and decisions: `docs/idea.md`. Code map: `docs/architecture.md`. Build log: `PROGRESS.md`.

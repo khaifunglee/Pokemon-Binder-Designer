@@ -40,3 +40,14 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# env files (keep the example committed)
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+
+# Claude Code per-user settings
+.claude/settings.local.json
