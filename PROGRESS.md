@@ -6,7 +6,7 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status: M4 device-tested (capture + re-sort pass). MVP feature-complete. Remaining: verify checklist fix + new options on device; price-accuracy spot-check; then release prep.
+## Status (2026-11-17): MVP (M0–M4) + M5 TCGdex migration code-complete; device test pass pending before any new work. Ordered roadmap + decisions: docs/idea.md. Code map: docs/architecture.md.
 
 ## M4 test feedback round (2026-07-13) — all addressed
 
@@ -198,8 +198,8 @@ User tested M1+M2 on device and reported five issues; fixes are in:
   `expo export`/`expo start` fails trying to resolve one from its
   (TS-only, unbuilt) main entry. Re-check this when upgrading SDK again —
   add it back only if a future SDK's expo-image ships an app.plugin.js.
-- **Reanimated 4.x, not 3** (CLAUDE.md says 3): SDK 54+ requires v4;
-  worklets API unchanged. Flagged to user, not objected so far.
+- **Reanimated 4.x, not 3**: SDK 54+ requires v4; worklets API unchanged.
+  (CLAUDE.md updated to say 4 on 2026-11-17.)
 - Expo SDK 54 (~54.0.13), RN 0.81.5, React 19.1, TS ~5.9.2, drizzle-orm
   0.45, jest-expo ~54.0.17, reanimated ~4.1.1, gesture-handler ~2.28.
 - **`react-native-worklets` MUST be pinned to exactly 0.5.1, not left to
@@ -221,6 +221,9 @@ User tested M1+M2 on device and reported five issues; fixes are in:
 - `npx expo export --platform ios` used as bundle smoke test throughout.
 
 ## M0 — done
+
+> Superseded in M5: `src/lib/tcg/`, its fixtures, `scripts/fetch-fixtures.mjs`
+> and `src/db/devSeed.ts` were removed; ingestion now lives in `src/lib/tcgdex/`.
 
 - Schema `src/db/schema.ts` (binders/pages/slots/cards/collection/sets),
   migration `drizzle/0000_*.sql` applied at startup (`useMigrations`),
@@ -336,6 +339,8 @@ UI:
 
 ## Next
 
+> Superseded 2026-11-17: the current ordered roadmap is in docs/idea.md.
+
 MVP (M0–M4) is feature-complete. Remaining before calling it done:
 - Device test of M4: mirror-capture a few pages (incl. skips + variant
   long-press), run a physical re-sort by master-set and by colour,
@@ -394,7 +399,10 @@ that pokemontcg.io lacks; card counts match ptcgio for shared sets).
   than before, spinner shows), check Mega-era prices now appear, CSV
   import still matches TCGplayer set codes.
 
-## Known upstream data limitation (verified 2026-07-13)
+## Known upstream data limitation (verified 2026-07-13) — SUPERSEDED by M5
+
+> pokemontcg.io is no longer used. Kept for history; TCGdex has its own
+> quirks (see M5 section).
 
 All card/set/price data comes from pokemontcg.io (CLAUDE.md-mandated);
 prices are the `tcgplayer.prices` block embedded in card payloads —
@@ -429,4 +437,4 @@ paid) deliberately not pursued in MVP; user informed.
   extra prints of one species shift later gap positions by design.
 - `pagesRef`/`currentPageRef` pattern assumes page list doesn't shrink
   mid-drag; page deletion still unbuilt, so safe.
-- No API key configured; unauthenticated rate limits fine for dev.
+- No API keys needed: TCGdex and frankfurter.dev are both keyless.

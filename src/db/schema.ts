@@ -27,16 +27,16 @@ export interface VisualTheme {
 }
 
 /**
- * TCG API sets, ingested at first launch. Cards reference these; set
+ * TCGdex sets, ingested at first launch. Cards reference these; set
  * browse/checklists and master-set sorting read from here offline.
  */
 export const sets = sqliteTable('sets', {
-  id: text('id').primaryKey(), // TCG API id, e.g. "sv1"
+  id: text('id').primaryKey(), // TCGdex set id, e.g. "me04"
   name: text('name').notNull(),
   series: text('series').notNull(),
   printedTotal: integer('printed_total').notNull(),
   total: integer('total').notNull(),
-  releaseDate: text('release_date').notNull(), // API format "YYYY/MM/DD"
+  releaseDate: text('release_date').notNull(), // TCGdex "YYYY-MM-DD"; '' if the API omits it
   /** TCGplayer/PTCGO set code (e.g. "SVI"); null for ~15% of sets. */
   ptcgoCode: text('ptcgo_code'),
   symbolUri: text('symbol_uri'),
@@ -48,7 +48,7 @@ export const sets = sqliteTable('sets', {
 export const cards = sqliteTable(
   'cards',
   {
-    id: text('id').primaryKey(), // TCG API id, e.g. "sv1-25"
+    id: text('id').primaryKey(), // TCGdex card id, e.g. "me04-003"
     name: text('name').notNull(),
     setId: text('set_id')
       .notNull()

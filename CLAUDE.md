@@ -12,11 +12,12 @@ mode with a physical re-sort move list.
 ## Tech stack (do not substitute without asking)
 
 - React Native + Expo (managed workflow), TypeScript (strict mode)
-- Reanimated 3 + react-native-gesture-handler — ALL animations/gestures on UI thread via worklets
+- Reanimated 4 (+ react-native-worklets, pinned to the exact version the Expo SDK bundles) + react-native-gesture-handler — ALL animations/gestures on UI thread via worklets
 - @shopify/react-native-skia — page-turn, sleeve, and shuffle animations
 - Zustand — app state
 - expo-sqlite + Drizzle ORM — local database (single source of truth)
-- Pokémon TCG API (pokemontcg.io) — card metadata + images; cache aggressively
+- TCGdex (api.tcgdex.net, free, keyless) — card metadata, images + TCGplayer prices; cache aggressively
+  (migrated from pokemontcg.io in M5, 2026-07-19, user-approved)
 - No backend, no auth, no cloud sync in MVP. Offline-capable, single-device.
 
 ## Architecture rules
@@ -38,7 +39,7 @@ mode with a physical re-sort move list.
 - `pages`: id, binder_id, page_index
 - `slots`: id, page_id, slot_index, card_id (nullable = empty pocket), variant,
   quantity, condition (nullable), merged_group_id (nullable), custom_image_uri (nullable)
-- `cards` (from TCG API): id, name, set_id, number, rarity, supertype, types[],
+- `cards` (from TCGdex): id, name, set_id, number, rarity, supertype, types[],
   image_small_uri, image_large_uri, variants[]
 - `collection`: card_id, variant, quantity_owned (source of truth for "what I own")
 - Merged slots: adjacent slots sharing a merged_group_id render as one region
