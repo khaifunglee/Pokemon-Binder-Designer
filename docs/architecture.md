@@ -225,9 +225,8 @@ is mostly verification and release work.
   `src/lib/tcg/`, `devSeed.ts`, and `scripts/`.
 - The `schema.ts` comment says `releaseDate` uses "YYYY/MM/DD", but TCGdex gives
   "YYYY-MM-DD" (or `''` when missing).
-- There's no README.
 
 **Housekeeping and security notes**
-- `.gitignore` covers `.env*.local` but not plain `.env`. Nothing uses secrets
-  today because both APIs are keyless, but add `.env` before anything that does.
+- `.gitignore` covers `.env` and `.env.*` (with `.env.example` kept committed).
+  Nothing uses secrets today because both APIs are keyless.
 - No lint setup.
