@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from "react";
 import {
   Modal,
   Pressable,
@@ -6,10 +6,10 @@ import {
   Text,
   TextInput,
   View,
-} from 'react-native';
-
-import { BINDER_LAYOUTS } from '../../db/schema';
-import type { BinderLayout } from '../../db/schema';
+} from "react-native";
+/* test edit */
+import { BINDER_LAYOUTS } from "../../db/schema";
+import type { BinderLayout } from "../../db/schema";
 
 export interface BinderFormValues {
   name: string;
@@ -32,19 +32,19 @@ export function BinderFormModal({
   visible,
   title,
   submitLabel,
-  initialName = '',
+  initialName = "",
   nameOnly = false,
   onSubmit,
   onClose,
 }: Props) {
   const [name, setName] = useState(initialName);
-  const [layout, setLayout] = useState<BinderLayout>('3x3');
+  const [layout, setLayout] = useState<BinderLayout>("3x3");
   const [pageCount, setPageCount] = useState(4);
 
   useEffect(() => {
     if (visible) {
       setName(initialName);
-      setLayout('3x3');
+      setLayout("3x3");
       setPageCount(4);
     }
   }, [visible, initialName]);
@@ -52,7 +52,12 @@ export function BinderFormModal({
   const canSubmit = name.trim().length > 0;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
           <Text style={styles.title}>{title}</Text>
@@ -131,47 +136,57 @@ export function BinderFormModal({
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
     padding: 24,
   },
-  sheet: { backgroundColor: '#fff', borderRadius: 12, padding: 20, gap: 12 },
-  title: { fontSize: 18, fontWeight: '600' },
+  sheet: { backgroundColor: "#fff", borderRadius: 12, padding: 20, gap: 12 },
+  title: { fontSize: 18, fontWeight: "600" },
   input: {
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: "#ccc",
     borderRadius: 8,
     padding: 10,
     fontSize: 16,
   },
-  label: { fontSize: 13, color: '#666' },
-  layoutRow: { flexDirection: 'row', gap: 8 },
+  label: { fontSize: 13, color: "#666" },
+  layoutRow: { flexDirection: "row", gap: 8 },
   layoutOption: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#ccc',
+    borderColor: "#ccc",
     borderRadius: 8,
     paddingVertical: 10,
-    alignItems: 'center',
+    alignItems: "center",
   },
-  layoutSelected: { borderColor: '#e3350d', backgroundColor: '#fdecea' },
-  layoutText: { fontSize: 15, color: '#333' },
-  layoutTextSelected: { color: '#e3350d', fontWeight: '600' },
-  stepperRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  layoutSelected: { borderColor: "#e3350d", backgroundColor: "#fdecea" },
+  layoutText: { fontSize: 15, color: "#333" },
+  layoutTextSelected: { color: "#e3350d", fontWeight: "600" },
+  stepperRow: { flexDirection: "row", alignItems: "center", gap: 16 },
   stepBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#ccc',
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: "#ccc",
+    alignItems: "center",
+    justifyContent: "center",
   },
   stepBtnText: { fontSize: 20, lineHeight: 22 },
-  stepValue: { fontSize: 17, fontWeight: '600', minWidth: 28, textAlign: 'center' },
-  actions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 8, marginTop: 4 },
+  stepValue: {
+    fontSize: 17,
+    fontWeight: "600",
+    minWidth: 28,
+    textAlign: "center",
+  },
+  actions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 8,
+    marginTop: 4,
+  },
   actionBtn: { paddingHorizontal: 16, paddingVertical: 10 },
   disabled: { opacity: 0.4 },
-  cancelText: { fontSize: 16, color: '#666' },
-  submitText: { fontSize: 16, color: '#e3350d', fontWeight: '600' },
+  cancelText: { fontSize: 16, color: "#666" },
+  submitText: { fontSize: 16, color: "#e3350d", fontWeight: "600" },
 });
