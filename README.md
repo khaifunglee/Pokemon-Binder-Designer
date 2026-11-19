@@ -93,6 +93,7 @@ are fetched per set the first time you open one.
 ```bash
 npm test                          # Jest unit tests (pure logic in src/lib)
 npx tsc --noEmit                  # type check
+npm run lint                      # ESLint (Expo config)
 npx expo export --platform ios    # bundle smoke test (catches Metro resolution errors)
 ```
 

@@ -171,8 +171,8 @@ npx expo export --platform ios   # bundle smoke test (catches Metro resolution e
 npx expo install --check         # Expo-SDK version alignment check
 ```
 
-- **There is no linter.** No ESLint config or lint script exists. `tsc` is the only
-  static check.
+- **Lint:** `npm run lint` runs ESLint with Expo's flat config (`eslint.config.js`).
+  `tsc` remains the type check.
 - Tests cover pure logic only: sort, organize, diff, moveText, merge, stacking,
   layout, dnd, provision, completion, CSV/format/resolve, search, currency, and the
   TCGdex mappers. No UI or DB-service tests.
@@ -229,4 +229,3 @@ is mostly verification and release work.
 **Housekeeping and security notes**
 - `.gitignore` covers `.env` and `.env.*` (with `.env.example` kept committed).
   Nothing uses secrets today because both APIs are keyless.
-- No lint setup.

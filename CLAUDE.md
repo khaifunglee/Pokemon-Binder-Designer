@@ -94,7 +94,7 @@ mode with a physical re-sort move list.
 - `npx drizzle-kit generate` — DB migrations
 - `npx expo export --platform ios` — bundle smoke test (catches Metro resolution errors)
 - `npx expo install --check` — Expo SDK version alignment (currently flags expo-file-system 19.0.23 vs ~19.0.24)
-- Lint: none — no ESLint configured; `tsc` is the only static check
+- `npm run lint` — ESLint (eslint-config-expo flat config in `eslint.config.js`); the PostToolUse hook lints each edited file and blocks on errors (warnings pass)
 
 ## Gotchas
 
