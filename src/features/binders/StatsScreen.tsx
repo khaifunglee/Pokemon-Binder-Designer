@@ -106,7 +106,7 @@ export function StatsScreen({ route, navigation }: Props) {
     return (
       <View style={styles.center}>
         <Text style={styles.hint}>
-          Add cards to this binder first — completion compares its sets'
+          Add cards to this binder first — completion compares its sets&apos;
           full checklists against your collection.
         </Text>
       </View>

@@ -81,7 +81,7 @@ export function ImportScreen({ route, navigation }: Props) {
         <Text style={styles.hint}>
           TCGplayer, pkmnbindr and Collectr exports are detected automatically;
           other CSVs work when they have name/set/number columns. Cards fill this
-          binder's empty pockets and are added to your collection.
+          binder&apos;s empty pockets and are added to your collection.
         </Text>
         <Pressable style={styles.primaryBtn} onPress={() => void pickFile()}>
           <Text style={styles.primaryBtnText}>Choose CSV file</Text>
@@ -124,7 +124,7 @@ export function ImportScreen({ route, navigation }: Props) {
       <ScrollView style={styles.scroll}>
         {resolution.problems.length > 0 && (
           <>
-            <Text style={styles.sectionHeader}>Won't be imported</Text>
+            <Text style={styles.sectionHeader}>Won&apos;t be imported</Text>
             {resolution.problems.map((p) => (
               <Text key={`p-${p.line}`} style={styles.problemRow}>
                 line {p.line}: {p.detail}
