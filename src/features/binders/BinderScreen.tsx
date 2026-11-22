@@ -49,7 +49,6 @@ import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { PageTurnOverlay } from './PageTurnOverlay';
-import { promptPokedexGaps } from './pokedexGapsPrompt';
 import { ShuffleOverlay } from './ShuffleOverlay';
 import { STRATEGY_LABELS } from './strategyLabels';
 import { useBinderSpread } from './useBinderSpread';
@@ -138,7 +137,7 @@ export function BinderScreen({ route, navigation }: Props) {
         // One frame's pause lets the shuffle appear and start looping on
         // the UI thread, where the busy JS thread can't stall it.
         await new Promise<void>((resolve) => setTimeout(resolve, 80));
-        // Gapped layouts (master-set/pokédex) can grow the binder a lot;
+        // Per-set and per-category page breaks can grow the binder a lot;
         // confirm before adding a noticeable number of pages.
         const growth = await organizePageGrowth(db, binderId, strategy).catch(() => 0);
         if (growth > 3) {
@@ -146,7 +145,7 @@ export function BinderScreen({ route, navigation }: Props) {
           const proceed = await new Promise<boolean>((resolve) => {
             Alert.alert(
               'Grow binder?',
-              `This layout leaves gaps for missing cards and needs ${growth} new pages.`,
+              `This layout needs ${growth} new pages.`,
               [
                 { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
                 { text: `Add ${growth} pages`, onPress: () => resolve(true) },
@@ -180,10 +179,7 @@ export function BinderScreen({ route, navigation }: Props) {
     Alert.alert('Organize by', undefined, [
       ...STRATEGY_LABELS.map(([strategy, label]) => ({
         text: label,
-        onPress: () =>
-          strategy === 'pokedex'
-            ? promptPokedexGaps(() => runOrganize(strategy))
-            : runOrganize(strategy),
+        onPress: () => runOrganize(strategy),
       })),
       { text: 'Cancel', style: 'cancel' as const },
     ]);
