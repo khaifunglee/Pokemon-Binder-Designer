@@ -65,6 +65,15 @@ describe('buildSequence — master-set (packed)', () => {
 });
 
 describe('buildSequence — pokedex (packed)', () => {
+  it('keeps duplicate pockets of the same card adjacent', () => {
+    const entries = [
+      entry('s1', 'a', { nationalPokedexNumbers: [25], number: '1' }),
+      entry('s2', 'b', { nationalPokedexNumbers: [25], number: '2' }),
+      entry('s3', 'a', { nationalPokedexNumbers: [25], number: '1' }),
+    ];
+    expect(ids(buildSequence(entries, 'pokedex', ctx()))).toEqual(['a', 'a', 'b']);
+  });
+
   it('is packed dex order with non-Pokémon after, no blank pockets', () => {
     const entries = [
       entry('s1', 'mew', { nationalPokedexNumbers: [151] }),
