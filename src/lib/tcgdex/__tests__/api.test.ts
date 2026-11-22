@@ -22,4 +22,20 @@ describe('fetchSeriesSetIds', () => {
     global.fetch = jest.fn().mockResolvedValue({ ok: false, status: 503 }) as jest.Mock;
     await expect(fetchSeriesSetIds('tcgp')).rejects.toThrow('503');
   });
+
+  it('throws when the series lists no sets, so nothing can slip past the filter', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'tcgp', name: 'Pokémon TCG Pocket', sets: [] }),
+    }) as jest.Mock;
+    await expect(fetchSeriesSetIds('tcgp')).rejects.toThrow('no sets');
+  });
+
+  it('throws when the response has no usable set list', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'tcgp', name: 'Pokémon TCG Pocket', sets: [{ name: 'A1' }] }),
+    }) as jest.Mock;
+    await expect(fetchSeriesSetIds('tcgp')).rejects.toThrow('no sets');
+  });
 });

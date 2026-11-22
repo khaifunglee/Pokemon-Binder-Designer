@@ -15,10 +15,18 @@ export function fetchSetBriefs(): Promise<DexSetBrief[]> {
   return getJson<DexSetBrief[]>('/sets');
 }
 
-/** Set ids in a series; throws when the lookup fails. */
+/**
+ * Set ids in a series. Throws when the lookup fails or yields no set ids:
+ * callers use this list to exclude sets, so an empty or malformed answer
+ * would silently exclude nothing.
+ */
 export async function fetchSeriesSetIds(seriesId: string): Promise<string[]> {
   const series = await getJson<DexSeriesDetail>(`/series/${encodeURIComponent(seriesId)}`);
-  return series.sets.map((s) => s.id);
+  const ids = (Array.isArray(series?.sets) ? series.sets : [])
+    .map((s) => s?.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0);
+  if (ids.length === 0) throw new Error(`TCGdex series ${seriesId} returned no sets`);
+  return ids;
 }
 
 export function fetchSetDetail(setId: string): Promise<DexSetDetail> {
