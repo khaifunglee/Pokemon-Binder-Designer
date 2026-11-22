@@ -6,7 +6,7 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-22): roadmap step 1 (cleanup + quick fixes) built on branch `chore/step1-cleanup`; PNG export fix waits on the user's Simulator error report. Next: roadmap step 2 (catalogue onboarding). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-22): roadmap step 1 (cleanup + quick fixes) built on branch `chore/step1-cleanup`, export verified on the Simulator; full Simulator check pending before merge. Next: roadmap step 2 (catalogue onboarding). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
 
 ## Roadmap step 1: cleanup + quick fixes (2026-11-22)
 
@@ -26,11 +26,15 @@ restorable from `189daaa` (D20).
   settings. Check: `bash scripts/verify-migration-0004.sh <scratch-dir>`.
 - **TCG Pocket excluded:** `ingestSets` looks up series `tcgp` first and
   never fetches its sets; a failed lookup skips the sync.
-- **Export:** the alert now says whether capture or share failed and
-  why. The fix itself follows the user's reproduced error.
+- **Export fixed:** the captured pager View was layout-only, so the New
+  Architecture flattened it and view-shot failed with "No view found
+  with reactTag" (measureInWindow still worked through the shadow tree).
+  `collapsable={false}` keeps the native view. Failures now alert with
+  the stage (capture / share) and the error. Verified on the Simulator:
+  the share sheet opens with a PNG of the visible page (page 2).
 - NEEDS SIMULATOR CHECK, then phone: app starts empty, no Pocket sets,
   packed Pokédex/master-set organize with no prompt, no merge or
-  custom-image menu items, export opens the share sheet.
+  custom-image menu items.
 
 ## M4 test feedback round (2026-07-13) — all addressed
 
