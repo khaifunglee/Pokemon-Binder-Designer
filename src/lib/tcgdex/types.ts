@@ -11,6 +11,12 @@ export interface DexSetBrief {
   cardCount: { total: number; official: number };
 }
 
+export interface DexSeriesDetail {
+  id: string; // e.g. "tcgp"
+  name: string;
+  sets: DexSetBrief[];
+}
+
 export interface DexCardBrief {
   id: string; // e.g. "me04-003"
   localId: string; // collector number, e.g. "003"

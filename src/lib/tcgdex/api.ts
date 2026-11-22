@@ -1,4 +1,4 @@
-import type { DexCardDetail, DexSetBrief, DexSetDetail } from './types';
+import type { DexCardDetail, DexSeriesDetail, DexSetBrief, DexSetDetail } from './types';
 
 const BASE_URL = 'https://api.tcgdex.net/v2/en';
 
@@ -13,6 +13,12 @@ async function getJson<T>(path: string): Promise<T> {
 
 export function fetchSetBriefs(): Promise<DexSetBrief[]> {
   return getJson<DexSetBrief[]>('/sets');
+}
+
+/** Set ids in a series; throws when the lookup fails. */
+export async function fetchSeriesSetIds(seriesId: string): Promise<string[]> {
+  const series = await getJson<DexSeriesDetail>(`/series/${encodeURIComponent(seriesId)}`);
+  return series.sets.map((s) => s.id);
 }
 
 export function fetchSetDetail(setId: string): Promise<DexSetDetail> {

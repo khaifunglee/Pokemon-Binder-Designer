@@ -5,7 +5,9 @@ import {
   fetchSetBriefs,
   fetchSetDetail,
   fetchSetDetails,
+  fetchSeriesSetIds,
 } from '../lib/tcgdex/api';
+import { POCKET_SERIES_ID, selectSetsToFetch } from '../lib/tcgdex/filter';
 import { extractPrices, mapCardDetail, mapSetDetail } from '../lib/tcgdex/mappers';
 import type { DexSetDetail } from '../lib/tcgdex/types';
 import type { Db } from './client';
@@ -50,17 +52,24 @@ export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
  * Refresh the sets catalog: cheap brief listing, then full details only
  * for sets we don't have yet (details carry release dates). Runs in the
  * background at launch; the UI never waits on it.
+ *
+ * TCG Pocket (digital-only) sets are excluded and never fetched. Their
+ * ids come from one small series lookup on every sync (no cache); if it
+ * fails, the whole sync stops rather than ingesting unfiltered.
  */
 export async function ingestSets(db: Db): Promise<number> {
+  const pocketIds = new Set(await fetchSeriesSetIds(POCKET_SERIES_ID));
   const briefs = await fetchSetBriefs();
   const known = new Set(
     (await db.select({ id: sets.id }).from(sets)).map((r) => r.id),
   );
-  const missing = briefs.filter((b) => !known.has(b.id)).map((b) => b.id);
+  const missing = selectSetsToFetch(briefs, known, pocketIds);
   if (missing.length === 0) return 0;
-  const details = await fetchSetDetails(missing);
+  const details = (await fetchSetDetails(missing)).filter(
+    (d) => d.serie?.id !== POCKET_SERIES_ID,
+  );
   await upsertSets(db, details.map(mapSetDetail));
-  return missing.length;
+  return details.length;
 }
 
 export interface IngestProgress {
