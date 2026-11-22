@@ -183,8 +183,13 @@ export function BinderScreen({ route, navigation }: Props) {
       Alert.alert('Export failed', `Could not ${stage} this page: ${message}`);
     };
 
-    if (!(await Sharing.isAvailableAsync())) {
-      Alert.alert('Export unavailable', "Sharing isn't available on this device.");
+    try {
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Export unavailable', "Sharing isn't available on this device.");
+        return;
+      }
+    } catch (e) {
+      reportFailure('share', e);
       return;
     }
 
