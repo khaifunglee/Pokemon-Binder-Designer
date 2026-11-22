@@ -18,3 +18,22 @@ describe('selectSetsToFetch', () => {
     expect(selectSetsToFetch([brief('A1')], new Set(), new Set(['A1']))).toEqual([]);
   });
 });
+
+describe('selectSetsToFetch — edge cases', () => {
+  it('returns nothing for an empty set list', () => {
+    expect(selectSetsToFetch([], new Set(['sv1']), new Set(['A1']))).toEqual([]);
+  });
+
+  it('returns every brief when nothing is known or excluded', () => {
+    expect(selectSetsToFetch([brief('sv1'), brief('sv2')], new Set(), new Set())).toEqual([
+      'sv1',
+      'sv2',
+    ]);
+  });
+
+  it('drops an id that is both known and excluded', () => {
+    expect(selectSetsToFetch([brief('A1'), brief('sv2')], new Set(['A1']), new Set(['A1']))).toEqual([
+      'sv2',
+    ]);
+  });
+});

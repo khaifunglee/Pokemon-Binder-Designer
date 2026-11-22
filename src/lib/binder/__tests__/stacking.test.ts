@@ -75,3 +75,41 @@ describe('planUnstack', () => {
     ]);
   });
 });
+
+describe('planConsolidate — edge cases', () => {
+  it('returns an empty plan for an empty binder', () => {
+    expect(planConsolidate([])).toEqual({ updates: [], clears: [] });
+  });
+
+  it('consolidates every duplicated card, in order of first appearance', () => {
+    const plan = planConsolidate([
+      slot('s1', 'b'),
+      slot('s2', 'a'),
+      slot('s3', 'b', 2),
+      slot('s4', 'a'),
+    ]);
+    expect(plan.updates).toEqual([
+      { slotId: 's1', quantity: 3 },
+      { slotId: 's2', quantity: 2 },
+    ]);
+    expect(plan.clears).toEqual(['s3', 's4']);
+  });
+
+  it('stacks pockets of the same card even when their variants differ', () => {
+    // Variant stacking means one pocket per card, matching resolvePlacement (card id only).
+    const plan = planConsolidate([
+      slot('s1', 'a', 1, { variant: 'normal' }),
+      slot('s2', 'a', 1, { variant: 'reverseHolofoil' }),
+    ]);
+    expect(plan).toEqual({ updates: [{ slotId: 's1', quantity: 2 }], clears: ['s2'] });
+  });
+});
+
+describe('planUnstack — edge cases', () => {
+  it('returns an empty plan when nothing is stacked', () => {
+    expect(planUnstack([slot('s1', 'a'), slot('s2', null, 3)])).toEqual({
+      updates: [],
+      overflow: [],
+    });
+  });
+});
