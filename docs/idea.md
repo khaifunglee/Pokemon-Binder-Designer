@@ -158,6 +158,8 @@ The per-set **checklist** screen and a set template binder are two views of the 
 - **D20. Delete cut code from `master`.** This covers merged pockets and custom images, the gaps
   prompt and the `pokedexGaps` setting, and the TCGdex migration. Record in the backlog the last
   commit that still has each one, so it can be restored. No long-lived branches.
+  - **Restore point:** all three are intact at `189daaa` (the last `master` commit before
+    roadmap step 1).
 - **D21. CLAUDE.md follows this doc.** Its MVP scope, data model and out-of-scope list are
   updated to match these verdicts, so future sessions don't build against the old scope.
 

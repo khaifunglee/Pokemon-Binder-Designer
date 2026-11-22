@@ -22,7 +22,6 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
-import { randomUUID } from 'expo-crypto';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 
@@ -30,26 +29,15 @@ import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
 import { autoOrganize, organizePageGrowth } from '../../db/organize';
 import type { SortStrategy } from '../../db/schema';
-import {
-  clearSlot,
-  setCustomImage,
-  setMergedGroup,
-  setSlotQuantity,
-  swapSlotContents,
-  unmergeGroup,
-} from '../../db/slots';
+import { clearSlot, setSlotQuantity, swapSlotContents } from '../../db/slots';
 import { consolidateDuplicates, unstackDuplicates } from '../../db/stackingService';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
 import { layoutSpec } from '../../lib/binder/layout';
-import { groupMergeUnion, MERGE_DIRECTIONS } from '../../lib/binder/merge';
-import type { MergeDirection } from '../../lib/binder/merge';
-import { deleteCustomImage, pickAndStoreCustomImage } from './customImage';
 import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { PageTurnOverlay } from './PageTurnOverlay';
-import { promptPokedexGaps } from './pokedexGapsPrompt';
 import { ShuffleOverlay } from './ShuffleOverlay';
 import { STRATEGY_LABELS } from './strategyLabels';
 import { useBinderSpread } from './useBinderSpread';
@@ -138,7 +126,7 @@ export function BinderScreen({ route, navigation }: Props) {
         // One frame's pause lets the shuffle appear and start looping on
         // the UI thread, where the busy JS thread can't stall it.
         await new Promise<void>((resolve) => setTimeout(resolve, 80));
-        // Gapped layouts (master-set/pokédex) can grow the binder a lot;
+        // Per-set and per-category page breaks can grow the binder a lot;
         // confirm before adding a noticeable number of pages.
         const growth = await organizePageGrowth(db, binderId, strategy).catch(() => 0);
         if (growth > 3) {
@@ -146,7 +134,7 @@ export function BinderScreen({ route, navigation }: Props) {
           const proceed = await new Promise<boolean>((resolve) => {
             Alert.alert(
               'Grow binder?',
-              `This layout leaves gaps for missing cards and needs ${growth} new pages.`,
+              `This layout needs ${growth} new pages.`,
               [
                 { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
                 { text: `Add ${growth} pages`, onPress: () => resolve(true) },
@@ -180,14 +168,49 @@ export function BinderScreen({ route, navigation }: Props) {
     Alert.alert('Organize by', undefined, [
       ...STRATEGY_LABELS.map(([strategy, label]) => ({
         text: label,
-        onPress: () =>
-          strategy === 'pokedex'
-            ? promptPokedexGaps(() => runOrganize(strategy))
-            : runOrganize(strategy),
+        onPress: () => runOrganize(strategy),
       })),
       { text: 'Cancel', style: 'cancel' as const },
     ]);
   }, [runOrganize]);
+
+  // Export the visible page as a PNG into the share sheet. Capture and
+  // share fail for different reasons, so report which stage broke and why.
+  const exportPage = useCallback(async () => {
+    const reportFailure = (stage: 'capture' | 'share', e: unknown) => {
+      console.warn(`[export] ${stage} failed`, e);
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('Export failed', `Could not ${stage} this page: ${message}`);
+    };
+
+    try {
+      if (!(await Sharing.isAvailableAsync())) {
+        Alert.alert('Export unavailable', "Sharing isn't available on this device.");
+        return;
+      }
+    } catch (e) {
+      reportFailure('share', e);
+      return;
+    }
+
+    let uri: string;
+    try {
+      uri = await captureRef(pagerRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+    } catch (e) {
+      reportFailure('capture', e);
+      return;
+    }
+
+    try {
+      await Sharing.shareAsync(uri, { mimeType: 'image/png' });
+    } catch (e) {
+      reportFailure('share', e);
+    }
+  }, []);
 
   const sortStrategy = binder?.sortStrategy ?? 'custom';
 
@@ -302,9 +325,6 @@ export function BinderScreen({ route, navigation }: Props) {
       if (idx == null) return;
       const pocket = pagesRef.current[currentPageRef.current]?.pockets[idx];
       if (!pocket || pocket.slot.cardId == null) return;
-      // Merged regions and custom-image pockets are pinned: no dragging.
-      if (pocket.slot.mergedGroupId !== null || pocket.slot.customImageUri !== null)
-        return;
       draggingRef.current = pocket;
       setDragging(pocket);
       dragActive.value = 1;
@@ -323,12 +343,7 @@ export function BinderScreen({ route, navigation }: Props) {
           idx == null
             ? null
             : pagesRef.current[currentPageRef.current]?.pockets[idx];
-        if (
-          target &&
-          target.slot.mergedGroupId === null &&
-          target.slot.customImageUri === null
-        )
-          finishSwap(source, target);
+        if (target) finishSwap(source, target);
       }
       draggingRef.current = null;
       setDragging(null);
@@ -399,73 +414,11 @@ export function BinderScreen({ route, navigation }: Props) {
 
   const touch = () => void touchBinder(db, binderId);
 
-  const applyMerge = (pocket: PocketVM, direction: MergeDirection) => {
-    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
-    if (!page) return;
-    const cells = page.pockets.map((p) => ({
-      slotId: p.slot.id,
-      slotIndex: p.slot.slotIndex,
-      mergedGroupId: p.slot.mergedGroupId,
-    }));
-    const union = groupMergeUnion(cells, layout, pocket.slot.slotIndex, direction);
-    if (!union) return;
-    const groupId =
-      union.find((c) => c.mergedGroupId !== null)?.mergedGroupId ?? randomUUID();
-    void setMergedGroup(db, union.map((c) => c.slotId), groupId).then(touch);
-  };
-
-  const setPocketImage = async (pocket: PocketVM) => {
-    const uri = await pickAndStoreCustomImage();
-    if (uri === null) return;
-    if (pocket.slot.customImageUri) await deleteCustomImage(pocket.slot.customImageUri);
-    await setCustomImage(db, pocket.slot.id, uri);
-    touch();
-  };
-
   const pocketMenu = (pocket: PocketVM) => {
-    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
-    const cells = (page?.pockets ?? []).map((p) => ({
-      slotId: p.slot.id,
-      slotIndex: p.slot.slotIndex,
-      mergedGroupId: p.slot.mergedGroupId,
-    }));
     const filled = pocket.slot.cardId != null;
     const buttons = [
       ...(filled
         ? [{ text: 'Move (tap a pocket)', onPress: () => setMoveSource(pocket) }]
-        : []),
-      ...MERGE_DIRECTIONS.filter((dir) =>
-        groupMergeUnion(cells, layout, pocket.slot.slotIndex, dir),
-      ).map((dir) => ({
-        text: {
-          left: 'Merge with left pocket',
-          right: 'Merge with right pocket',
-          up: 'Merge with pocket above',
-          down: 'Merge with pocket below',
-        }[dir],
-        onPress: () => applyMerge(pocket, dir),
-      })),
-      ...(pocket.slot.mergedGroupId !== null
-        ? [
-            {
-              text: 'Unmerge',
-              onPress: () =>
-                void unmergeGroup(db, pocket.slot.mergedGroupId!).then(touch),
-            },
-          ]
-        : []),
-      { text: 'Custom image…', onPress: () => void setPocketImage(pocket) },
-      ...(pocket.slot.customImageUri !== null
-        ? [
-            {
-              text: 'Remove custom image',
-              onPress: () => {
-                void deleteCustomImage(pocket.slot.customImageUri!)
-                  .then(() => setCustomImage(db, pocket.slot.id, null))
-                  .then(touch);
-              },
-            },
-          ]
         : []),
       ...(filled
         ? [
@@ -486,7 +439,7 @@ export function BinderScreen({ route, navigation }: Props) {
       executeMoveTo(pocket);
       return;
     }
-    if (pocket.slot.cardId == null && pocket.slot.customImageUri == null) {
+    if (pocket.slot.cardId == null) {
       navigation.navigate('PickerSets', { binderId, slotId: pocket.slot.id });
       return;
     }
@@ -508,6 +461,10 @@ export function BinderScreen({ route, navigation }: Props) {
 
       <View
         ref={pagerRef}
+        // PNG export captures this view natively. It's layout-only, so the
+        // New Architecture would flatten it away ("No view found with
+        // reactTag") unless told to keep it.
+        collapsable={false}
         style={styles.pager}
         onLayout={(e) => {
           setPagerHeight(e.nativeEvent.layout.height);
@@ -581,21 +538,7 @@ export function BinderScreen({ route, navigation }: Props) {
         <View style={styles.pageNav}>
           <Pressable
             hitSlop={12}
-            // Export the visible page as a PNG into the share sheet.
-            onPress={() => {
-              void (async () => {
-                try {
-                  const uri = await captureRef(pagerRef, {
-                    format: 'png',
-                    quality: 1,
-                    result: 'tmpfile',
-                  });
-                  await Sharing.shareAsync(uri, { mimeType: 'image/png' });
-                } catch {
-                  Alert.alert('Export failed', 'Could not capture this page.');
-                }
-              })();
-            }}
+            onPress={() => void exportPage()}
           >
             <Text style={styles.shareBtn}>⇪</Text>
           </Pressable>
@@ -633,13 +576,9 @@ export function BinderScreen({ route, navigation }: Props) {
             onValueChange={(value) => {
               void updateBinder(db, binderId, { variantStacking: value });
               const pockets = pages.flatMap((p) => p.pockets);
-              const unpinned = pockets.filter(
-                (p) =>
-                  p.slot.mergedGroupId === null && p.slot.customImageUri === null,
-              );
               if (value) {
                 const cardCounts = new Map<string, number>();
-                for (const p of unpinned) {
+                for (const p of pockets) {
                   if (p.slot.cardId)
                     cardCounts.set(p.slot.cardId, (cardCounts.get(p.slot.cardId) ?? 0) + 1);
                 }
@@ -658,7 +597,7 @@ export function BinderScreen({ route, navigation }: Props) {
                   );
                 }
               } else {
-                const stacks = unpinned.filter((p) => p.slot.quantity > 1).length;
+                const stacks = pockets.filter((p) => p.slot.quantity > 1).length;
                 if (stacks > 0) {
                   Alert.alert(
                     'Unstack duplicates?',

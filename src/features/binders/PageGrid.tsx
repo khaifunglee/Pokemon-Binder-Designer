@@ -5,7 +5,6 @@ import type { EntryAnimationsValues } from 'react-native-reanimated';
 
 import type { BinderLayout } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
-import { groupRegions, regionAnchorIndex } from '../../lib/binder/merge';
 import { useUiStore } from '../../state/uiStore';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 import type { PocketVM } from './useBinderSpread';
@@ -64,18 +63,6 @@ function PocketFace({
   hidden: boolean;
   justPlaced?: boolean;
 }) {
-  if (pocket.slot.customImageUri !== null) {
-    return (
-      <Image
-        source={{ uri: pocket.slot.customImageUri }}
-        style={styles.cardImage}
-        contentFit="cover"
-        cachePolicy={CARD_IMAGE_CACHE_POLICY}
-        transition={100}
-        accessibilityLabel="custom image"
-      />
-    );
-  }
   if (pocket.slot.cardId !== null && !hidden) {
     const face = (
       <>
@@ -131,16 +118,6 @@ export function PageGrid({
   const justPlaced = (slotId: string) =>
     slotId === lastPlacedSlotId && Date.now() - lastPlacedAt < 3000;
 
-  const regions = groupRegions(
-    pockets.map((p) => ({
-      slotId: p.slot.id,
-      slotIndex: p.slot.slotIndex,
-      mergedGroupId: p.slot.mergedGroupId,
-    })),
-    layout,
-  );
-  const mergedIndexes = new Set(regions.flatMap((r) => r.slotIndexes));
-
   return (
     <View style={[styles.page, { gap }]}>
       {Array.from({ length: rows }, (_, r) => (
@@ -149,18 +126,7 @@ export function PageGrid({
             const index = r * cols + c;
             const pocket = pockets[index];
             if (!pocket) return <View key={c} style={{ width: pocketWidth }} />;
-            if (mergedIndexes.has(index)) {
-              // Rendered by its region overlay below.
-              return (
-                <View
-                  key={pocket.slot.id}
-                  style={{ width: pocketWidth, height: pocketHeight }}
-                />
-              );
-            }
-            const filled =
-              (pocket.slot.cardId != null && pocket.slot.id !== hiddenSlotId) ||
-              pocket.slot.customImageUri != null;
+            const filled = pocket.slot.cardId != null && pocket.slot.id !== hiddenSlotId;
             return (
               <Pressable
                 key={pocket.slot.id}
@@ -184,38 +150,6 @@ export function PageGrid({
         </View>
       ))}
 
-      {regions.map((region) => {
-        const anchor = pockets[regionAnchorIndex(region)];
-        if (!anchor) return null;
-        const spanCols = region.maxCol - region.minCol + 1;
-        const spanRows = region.maxRow - region.minRow + 1;
-        const filled = anchor.slot.cardId != null || anchor.slot.customImageUri != null;
-        return (
-          <Pressable
-            key={region.groupId}
-            onPress={() => onPocketPress?.(anchor)}
-            onLongPress={() => onPocketLongPress?.(anchor)}
-            style={[
-              styles.pocket,
-              styles.region,
-              !filled && styles.emptyPocket,
-              anchor.slot.id === highlightSlotId && styles.highlighted,
-              {
-                left: region.minCol * (pocketWidth + gap),
-                top: region.minRow * (pocketHeight + gap),
-                width: spanCols * pocketWidth + (spanCols - 1) * gap,
-                height: spanRows * pocketHeight + (spanRows - 1) * gap,
-              },
-            ]}
-          >
-            <PocketFace
-              pocket={anchor}
-              hidden={false}
-              justPlaced={justPlaced(anchor.slot.id)}
-            />
-          </Pressable>
-        );
-      })}
     </View>
   );
 }
@@ -230,7 +164,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  region: { position: 'absolute' },
   emptyPocket: {
     borderWidth: 1,
     borderStyle: 'dashed',

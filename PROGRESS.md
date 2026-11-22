@@ -6,7 +6,35 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-22): first device test pass done; concept review gave every feature a verdict (keep / fix / change / leave out) and set a new 8-step roadmap. Next: roadmap step 1 (cleanup + quick fixes). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-22): roadmap step 1 (cleanup + quick fixes) built on branch `chore/step1-cleanup`, export verified on the Simulator; full Simulator check pending before merge. Next: roadmap step 2 (catalogue onboarding). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+
+## Roadmap step 1: cleanup + quick fixes (2026-11-22)
+
+Spec: docs/superpowers/specs/2026-11-22-step1-cleanup-design.md. Plan:
+docs/superpowers/plans/2026-11-22-step1-cleanup.md. Cut code is
+restorable from `189daaa` (D20).
+- **Removed:** merged pockets + custom pocket images (the whole "pinned
+  pocket" idea, `merge.ts`, `customImage.ts`, `expo-image-picker`), the
+  Pokédex gaps prompt and `pokedexGaps` setting, and the one-time TCGdex
+  migration (`migrateToTcgdex.ts`, startup status text).
+- **Packed sorts:** Pokédex and master set leave no pockets for missing
+  cards. Colour/rarity categories and master-set sets still start on a
+  fresh page.
+- **Migration 0004:** one-time wipe of binders, pages, slots, collection,
+  prices, cards and sets on every device; keeps exchange rates and the
+  display currency; drops the two slot columns and the obsolete
+  settings. Check: `bash scripts/verify-migration-0004.sh <scratch-dir>`.
+- **TCG Pocket excluded:** `ingestSets` looks up series `tcgp` first and
+  never fetches its sets; a failed lookup skips the sync.
+- **Export fixed:** the captured pager View was layout-only, so the New
+  Architecture flattened it and view-shot failed with "No view found
+  with reactTag" (measureInWindow still worked through the shadow tree).
+  `collapsable={false}` keeps the native view. Failures now alert with
+  the stage (capture / share) and the error. Verified on the Simulator:
+  the share sheet opens with a PNG of the visible page (page 2).
+- NEEDS SIMULATOR CHECK, then phone: app starts empty, no Pocket sets,
+  packed Pokédex/master-set organize with no prompt, no merge or
+  custom-image menu items.
 
 ## M4 test feedback round (2026-07-13) — all addressed
 

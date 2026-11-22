@@ -114,9 +114,6 @@ export async function duplicateBinder(
     updatedAt: now,
   };
   const pageIdMap = new Map(sourcePages.map((p) => [p.id, randomUUID()]));
-  // Merged groups are scoped per binder; re-key them so the copies stay
-  // grouped with each other, not with the original.
-  const groupIdMap = new Map<string, string>();
   const copiedPages: PageRow[] = sourcePages.map((p) => ({
     ...p,
     id: pageIdMap.get(p.id)!,
@@ -126,11 +123,6 @@ export async function duplicateBinder(
     ...s,
     id: randomUUID(),
     pageId: pageIdMap.get(s.pageId)!,
-    mergedGroupId:
-      s.mergedGroupId == null
-        ? null
-        : (groupIdMap.get(s.mergedGroupId) ??
-          groupIdMap.set(s.mergedGroupId, randomUUID()).get(s.mergedGroupId)!),
   }));
 
   await db.transaction(async (tx) => {

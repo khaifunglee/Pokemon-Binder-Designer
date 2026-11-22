@@ -137,23 +137,19 @@ export async function applyImport(
     binder.variantStacking,
   );
 
-  // Ordinal-ordered empty, unpinned pockets.
+  // Ordinal-ordered empty pockets.
   const emptySlots = (
     await db
       .select({
         slotId: slots.id,
         cardId: slots.cardId,
-        mergedGroupId: slots.mergedGroupId,
-        customImageUri: slots.customImageUri,
       })
       .from(slots)
       .innerJoin(pages, eq(slots.pageId, pages.id))
       .where(eq(pages.binderId, binderId))
       .orderBy(asc(pages.pageIndex), asc(slots.slotIndex))
   )
-    .filter(
-      (s) => s.cardId === null && s.mergedGroupId === null && s.customImageUri === null,
-    )
+    .filter((s) => s.cardId === null)
     .map((s) => s.slotId);
 
   let targets = emptySlots;

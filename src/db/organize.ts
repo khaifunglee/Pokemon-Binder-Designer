@@ -1,14 +1,12 @@
-import { asc, eq, inArray } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 
 import { layoutSpec } from '../lib/binder/layout';
 import { buildSequence, planFromSequence } from '../lib/binder/organize';
-import type { OrganizeSlot, SequenceContext } from '../lib/binder/organize';
-import { compareCollectorNumbers } from '../lib/binder/sort';
+import type { OrganizeSlot } from '../lib/binder/organize';
 import type { SortableEntry } from '../lib/binder/sort';
 import { addPages } from './binders';
 import type { Db } from './client';
 import { binders, cards, pages, sets, slots } from './schema';
-import { getPokedexGaps } from './settingsService';
 import type { BinderRow, SortStrategy } from './schema';
 
 export interface OrganizePrep {
@@ -27,8 +25,6 @@ async function loadOrganizeSlots(db: Db, binderId: string): Promise<OrganizeSlot
       variant: slots.variant,
       quantity: slots.quantity,
       condition: slots.condition,
-      mergedGroupId: slots.mergedGroupId,
-      customImageUri: slots.customImageUri,
       cardName: cards.name,
       number: cards.number,
       setId: cards.setId,
@@ -70,38 +66,6 @@ async function loadOrganizeSlots(db: Db, binderId: string): Promise<OrganizeSlot
             rarity: r.rarity,
             supertype: r.supertype ?? '',
           },
-    pinned: r.mergedGroupId !== null || r.customImageUri !== null,
-  }));
-}
-
-async function loadFullSets(
-  db: Db,
-  setIds: string[],
-): Promise<SequenceContext['fullSets']> {
-  if (setIds.length === 0) return [];
-  const rows = await db
-    .select({
-      id: cards.id,
-      setId: cards.setId,
-      number: cards.number,
-      releaseDate: sets.releaseDate,
-    })
-    .from(cards)
-    .innerJoin(sets, eq(cards.setId, sets.id))
-    .where(inArray(cards.setId, setIds));
-
-  const bySet = new Map<string, { releaseDate: string; cards: { id: string; number: string }[] }>();
-  for (const r of rows) {
-    const entry = bySet.get(r.setId) ?? { releaseDate: r.releaseDate, cards: [] };
-    entry.cards.push({ id: r.id, number: r.number });
-    bySet.set(r.setId, entry);
-  }
-  return [...bySet.entries()].map(([setId, s]) => ({
-    setId,
-    releaseDate: s.releaseDate,
-    cardIds: s.cards
-      .sort((a, b) => compareCollectorNumbers(a.number, b.number))
-      .map((c) => c.id),
   }));
 }
 
@@ -115,25 +79,14 @@ export async function prepareOrganize(
 
   const organizeSlots = await loadOrganizeSlots(db, binderId);
   const entries: SortableEntry[] = organizeSlots
-    .filter((s) => !s.pinned && s.contents !== null && s.sortable !== null)
+    .filter((s) => s.contents !== null && s.sortable !== null)
     .map((s) => ({ slotId: s.slotId, ...s.sortable! }));
 
   const { slotsPerPage } = layoutSpec(binder.layout);
-  const fullSets =
-    strategy === 'master-set'
-      ? await loadFullSets(db, [...new Set(entries.map((e) => e.setId))])
-      : [];
-  const pokedexGaps = strategy === 'pokedex' ? await getPokedexGaps(db) : true;
-
-  const sequence = buildSequence(entries, strategy, {
-    slotsPerPage,
-    fullSets,
-    pokedexGaps,
-  });
-  const movableCount = organizeSlots.filter((s) => !s.pinned).length;
+  const sequence = buildSequence(entries, strategy, { slotsPerPage });
   const pagesToAdd = Math.max(
     0,
-    Math.ceil((sequence.length - movableCount) / slotsPerPage),
+    Math.ceil((sequence.length - organizeSlots.length) / slotsPerPage),
   );
   return { binder, organizeSlots, sequence, pagesToAdd };
 }

@@ -20,7 +20,7 @@ collectors. It mirrors physical card binders digitally:
 - **Physical re-sort**: diff the current layout against the sorted target and
   output a minimal, human-followable move list ("shift pockets 5–9 right by
   one", swaps, rings), so you can re-sort the real binder.
-- Merged pockets with custom images, variant stacking, and PNG export of a page.
+- Variant stacking and PNG export of a page.
 
 There is no backend, no accounts, and no sync. Everything lives in on-device SQLite.
 
@@ -52,19 +52,18 @@ src/
   db/                   SQLite access layer + app services (impure, async, take a Db)
     schema.ts           Drizzle tables (source of truth for the data model)
     client.ts           Opens pokebinder.db, WAL + foreign keys, exports `db`
-    hooks.ts            useDbReady: migrations → one-time TCGdex migration → bg catalog refresh
-    ingest.ts           Sets catalog + per-set card/price ingestion from TCGdex
-    migrateToTcgdex.ts  One-time remap of old pokemontcg.io ids → TCGdex ids
+    hooks.ts            useDbReady: migrations → bg catalog refresh
+    ingest.ts           Sets catalog + per-set card/price ingestion from TCGdex (no TCG Pocket)
     binders.ts cards.ts slots.ts            CRUD for binders/pages, card queries, pocket ops
     organize.ts movePlan.ts                 Auto-organize + physical re-sort plan
     importService.ts collectionService.ts   CSV import apply, owned-collection writes
     stackingService.ts statsService.ts      Variant (un)stacking, completion/cost stats
-    ratesService.ts settingsService.ts      FX rates, app_settings key/value
+    ratesService.ts                         FX rates + display currency (app_settings)
   lib/                  PURE logic, no React, Jest-tested (the important code)
-    binder/             layout, provision, dnd, stacking, sort, organize, merge,
+    binder/             layout, provision, dnd, stacking, sort, organize (packed sorts),
                         completion, diff (move engine), moveText (phrasing)
     import/             csv (RFC 4180 parser), formats (header detection), resolve (card matching)
-    tcgdex/             api client (6-wide pooled fetch), types, mappers
+    tcgdex/             api client (6-wide pooled fetch), types, mappers, filter (Pocket exclusion)
     search.ts currency.ts
   features/             UI, one folder per feature (screens + co-located helpers)
     binders/            list, binder spread (PageGrid, DragOverlay, PageTurnOverlay,
@@ -88,22 +87,21 @@ The layering rule: `features/` calls `db/` services, `db/` services call pure
   `market_usd`, `fetched_at`; kept separate because prices are volatile).
 - **User data:** `binders` (layout, `sort_strategy`, `visual_theme`, and
   `variant_stacking`; strategy and theme are independent fields) → `pages` → `slots`.
-  An empty pocket is a real row with `card_id = null`. `merged_group_id` and
-  `custom_image_uri` "pin" a pocket so organize, import, and drag skip it.
+  An empty pocket is a real row with `card_id = null`. Every pocket is movable.
 - **`collection`** (card_id + variant → quantity) is the source of truth for
   ownership, independent of binder placement.
-- **Support:** `exchange_rates` and `app_settings` (display currency, Pokédex gaps,
-  `catalogSource`).
+- **Support:** `exchange_rates` and `app_settings` (display currency).
 
 ### Startup
 
 ```
 App → useDbReady
   1. useMigrations (drizzle/*.sql)                     — blocks UI until done
-  2. if app_settings.catalogSource != 'tcgdex':
-       migrateToTcgdex (needs network; deferred if offline)
-  3. ready → render navigation
-  4. background: ingestSets() — diff set list, fetch details for new sets only
+     (0004 is the one-time step 1 wipe of user data + catalogue)
+  2. ready → render navigation
+  3. background: ingestSets() — look up TCG Pocket set ids (series tcgp), diff the
+     set list without them, fetch details for new sets only, and keep only details
+     that name a non-Pocket series. Lookup fails → skip sync.
 ```
 
 ### Reads: offline-first and reactive
@@ -173,9 +171,10 @@ npx expo install --check         # Expo-SDK version alignment check
 
 - **Lint:** `npm run lint` runs ESLint with Expo's flat config (`eslint.config.js`).
   `tsc` remains the type check.
-- Tests cover pure logic only: sort, organize, diff, moveText, merge, stacking,
+- Tests cover pure logic only: sort, organize, diff, moveText, stacking,
   layout, dnd, provision, completion, CSV/format/resolve, search, currency, and the
-  TCGdex mappers. No UI or DB-service tests.
+  TCGdex mappers, api and filter. No UI or DB-service tests. Migration 0004 has its
+  own check: `bash scripts/verify-migration-0004.sh <scratch-dir>`.
 - **Dependency pitfalls** (from PROGRESS.md and this session):
   - `npm audit fix --force` jumps Expo to 58 and breaks Metro, tsc, and Jest at
     once. Plain `npm audit fix` is safe. The remaining findings (postcss,
@@ -186,17 +185,14 @@ npx expo install --check         # Expo-SDK version alignment check
 
 ## 6. What's unfinished
 
-The MVP (M0–M4) is code-complete, and M5 (the TCGdex migration) is code-complete. What's left
-is mostly verification and release work.
+The MVP (M0–M4) and M5 are code-complete, and roadmap step 1 (cleanup) removed merged
+pockets, custom images, the Pokédex gaps option and the TCGdex migration. The roadmap
+in `docs/idea.md` lists what's next.
 
 **Needs device testing**
-- **M5 TCGdex migration (highest risk).** First launch runs the one-time
-  migration (network, ~1–2 min). Verify binders and collection survive, checklists
-  re-download, Mega-era prices appear, and CSV import still matches TCGplayer set codes.
-- The checklist rapid-toggle fix (echo-confirmed overrides) and the Pokédex
-  gaps/no-gaps option.
-- The earlier feedback-round fixes: merge in four directions, retroactive
-  stacking, organize semantics, variant rows, and the picker variant menu.
+- **Step 1 fresh start.** Migration 0004 wipes binders, collection and the
+  catalogue on first launch; the app starts empty and re-downloads the set list
+  (no TCG Pocket sets).
 - **60fps profiling pass:** not done. It needs a real (ideally low-end
   Android) device. The checklist is in PROGRESS.md under M3.
 - **Price accuracy:** not yet spot-checked against tcgplayer.com.
@@ -204,9 +200,7 @@ is mostly verification and release work.
 **Known gaps and design cuts**
 - The pkmnbindr and Collectr CSV formats are **reconstructed guesses**. Real
   export files are needed to lock the format signatures and fixtures.
-- Merging pockets that hold cards hides the non-anchor cards (they stay in the DB).
 - Import + stacking only stacks within the import batch, not onto existing pockets.
-- Pokédex gaps span only the owned dex range.
 - Page deletion isn't built (the drag code assumes pages don't shrink mid-drag).
 - Under TCGdex, the exact-match rarity ladder may mis-order within a bucket
   (cosmetic only).

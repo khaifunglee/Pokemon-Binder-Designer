@@ -46,8 +46,6 @@ export function buildPageSlots(
     variant: null,
     quantity: 1,
     condition: null,
-    mergedGroupId: null,
-    customImageUri: null,
   }));
 }
 

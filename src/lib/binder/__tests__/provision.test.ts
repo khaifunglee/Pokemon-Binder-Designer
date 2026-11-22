@@ -13,9 +13,22 @@ describe('buildPageSlots', () => {
     for (const slot of slots) {
       expect(slot.pageId).toBe('page-1');
       expect(slot.cardId).toBeNull();
-      expect(slot.mergedGroupId).toBeNull();
       expect(slot.quantity).toBe(1);
     }
+  });
+
+  it('builds slot rows with only the current slot columns', () => {
+    // Exact shape: guards against the removed merged-group / custom-image fields returning.
+    const [first] = buildPageSlots('2x2', 'page-1', sequentialIds());
+    expect(first).toEqual({
+      id: 'id-0',
+      pageId: 'page-1',
+      slotIndex: 0,
+      cardId: null,
+      variant: null,
+      quantity: 1,
+      condition: null,
+    });
   });
 });
 

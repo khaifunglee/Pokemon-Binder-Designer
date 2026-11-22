@@ -106,9 +106,6 @@ export const slots = sqliteTable(
     variant: text('variant'),
     quantity: integer('quantity').notNull().default(1),
     condition: text('condition'),
-    /** Adjacent slots sharing a group render as one region. */
-    mergedGroupId: text('merged_group_id'),
-    customImageUri: text('custom_image_uri'),
   },
   (t) => [uniqueIndex('slots_page_slot_uq').on(t.pageId, t.slotIndex)],
 );
