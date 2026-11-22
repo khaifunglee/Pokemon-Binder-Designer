@@ -456,6 +456,10 @@ export function BinderScreen({ route, navigation }: Props) {
 
       <View
         ref={pagerRef}
+        // PNG export captures this view natively. It's layout-only, so the
+        // New Architecture would flatten it away ("No view found with
+        // reactTag") unless told to keep it.
+        collapsable={false}
         style={styles.pager}
         onLayout={(e) => {
           setPagerHeight(e.nativeEvent.layout.height);
