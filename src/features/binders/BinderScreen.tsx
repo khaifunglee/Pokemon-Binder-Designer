@@ -189,6 +189,39 @@ export function BinderScreen({ route, navigation }: Props) {
     ]);
   }, [runOrganize]);
 
+  // Export the visible page as a PNG into the share sheet. Capture and
+  // share fail for different reasons, so report which stage broke and why.
+  const exportPage = useCallback(async () => {
+    const reportFailure = (stage: 'capture' | 'share', e: unknown) => {
+      console.warn(`[export] ${stage} failed`, e);
+      const message = e instanceof Error ? e.message : String(e);
+      Alert.alert('Export failed', `Could not ${stage} this page: ${message}`);
+    };
+
+    if (!(await Sharing.isAvailableAsync())) {
+      Alert.alert('Export unavailable', "Sharing isn't available on this device.");
+      return;
+    }
+
+    let uri: string;
+    try {
+      uri = await captureRef(pagerRef, {
+        format: 'png',
+        quality: 1,
+        result: 'tmpfile',
+      });
+    } catch (e) {
+      reportFailure('capture', e);
+      return;
+    }
+
+    try {
+      await Sharing.shareAsync(uri, { mimeType: 'image/png' });
+    } catch (e) {
+      reportFailure('share', e);
+    }
+  }, []);
+
   const sortStrategy = binder?.sortStrategy ?? 'custom';
 
   useLayoutEffect(() => {
@@ -581,21 +614,7 @@ export function BinderScreen({ route, navigation }: Props) {
         <View style={styles.pageNav}>
           <Pressable
             hitSlop={12}
-            // Export the visible page as a PNG into the share sheet.
-            onPress={() => {
-              void (async () => {
-                try {
-                  const uri = await captureRef(pagerRef, {
-                    format: 'png',
-                    quality: 1,
-                    result: 'tmpfile',
-                  });
-                  await Sharing.shareAsync(uri, { mimeType: 'image/png' });
-                } catch {
-                  Alert.alert('Export failed', 'Could not capture this page.');
-                }
-              })();
-            }}
+            onPress={() => void exportPage()}
           >
             <Text style={styles.shareBtn}>⇪</Text>
           </Pressable>
