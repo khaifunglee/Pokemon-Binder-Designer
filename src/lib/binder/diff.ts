@@ -26,7 +26,7 @@ export type DiffStep =
     };
 
 /**
- * @param pockets  Usable pockets (pinned ones excluded by the caller).
+ * @param pockets  The binder's pockets.
  * @param targetSources  targetOrdinal → ordinal currently holding the
  *   card that must end up there. Pockets absent as targets end empty;
  *   every occupied pocket must appear exactly once as a source.

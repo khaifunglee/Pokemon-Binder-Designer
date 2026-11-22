@@ -22,7 +22,6 @@ import {
   withTiming,
 } from 'react-native-reanimated';
 
-import { randomUUID } from 'expo-crypto';
 import * as Sharing from 'expo-sharing';
 import { captureRef } from 'react-native-view-shot';
 
@@ -30,21 +29,11 @@ import { addPages, touchBinder, updateBinder } from '../../db/binders';
 import { db } from '../../db/client';
 import { autoOrganize, organizePageGrowth } from '../../db/organize';
 import type { SortStrategy } from '../../db/schema';
-import {
-  clearSlot,
-  setCustomImage,
-  setMergedGroup,
-  setSlotQuantity,
-  swapSlotContents,
-  unmergeGroup,
-} from '../../db/slots';
+import { clearSlot, setSlotQuantity, swapSlotContents } from '../../db/slots';
 import { consolidateDuplicates, unstackDuplicates } from '../../db/stackingService';
 import { edgeDirection, pocketAt } from '../../lib/binder/dnd';
 import type { GridGeometry } from '../../lib/binder/dnd';
 import { layoutSpec } from '../../lib/binder/layout';
-import { groupMergeUnion, MERGE_DIRECTIONS } from '../../lib/binder/merge';
-import type { MergeDirection } from '../../lib/binder/merge';
-import { deleteCustomImage, pickAndStoreCustomImage } from './customImage';
 import type { RootStackParamList } from '../../navigation/types';
 import { DragOverlay } from './DragOverlay';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
@@ -331,9 +320,6 @@ export function BinderScreen({ route, navigation }: Props) {
       if (idx == null) return;
       const pocket = pagesRef.current[currentPageRef.current]?.pockets[idx];
       if (!pocket || pocket.slot.cardId == null) return;
-      // Merged regions and custom-image pockets are pinned: no dragging.
-      if (pocket.slot.mergedGroupId !== null || pocket.slot.customImageUri !== null)
-        return;
       draggingRef.current = pocket;
       setDragging(pocket);
       dragActive.value = 1;
@@ -352,12 +338,7 @@ export function BinderScreen({ route, navigation }: Props) {
           idx == null
             ? null
             : pagesRef.current[currentPageRef.current]?.pockets[idx];
-        if (
-          target &&
-          target.slot.mergedGroupId === null &&
-          target.slot.customImageUri === null
-        )
-          finishSwap(source, target);
+        if (target) finishSwap(source, target);
       }
       draggingRef.current = null;
       setDragging(null);
@@ -428,73 +409,11 @@ export function BinderScreen({ route, navigation }: Props) {
 
   const touch = () => void touchBinder(db, binderId);
 
-  const applyMerge = (pocket: PocketVM, direction: MergeDirection) => {
-    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
-    if (!page) return;
-    const cells = page.pockets.map((p) => ({
-      slotId: p.slot.id,
-      slotIndex: p.slot.slotIndex,
-      mergedGroupId: p.slot.mergedGroupId,
-    }));
-    const union = groupMergeUnion(cells, layout, pocket.slot.slotIndex, direction);
-    if (!union) return;
-    const groupId =
-      union.find((c) => c.mergedGroupId !== null)?.mergedGroupId ?? randomUUID();
-    void setMergedGroup(db, union.map((c) => c.slotId), groupId).then(touch);
-  };
-
-  const setPocketImage = async (pocket: PocketVM) => {
-    const uri = await pickAndStoreCustomImage();
-    if (uri === null) return;
-    if (pocket.slot.customImageUri) await deleteCustomImage(pocket.slot.customImageUri);
-    await setCustomImage(db, pocket.slot.id, uri);
-    touch();
-  };
-
   const pocketMenu = (pocket: PocketVM) => {
-    const page = pages.find((p) => p.pageId === pocket.slot.pageId);
-    const cells = (page?.pockets ?? []).map((p) => ({
-      slotId: p.slot.id,
-      slotIndex: p.slot.slotIndex,
-      mergedGroupId: p.slot.mergedGroupId,
-    }));
     const filled = pocket.slot.cardId != null;
     const buttons = [
       ...(filled
         ? [{ text: 'Move (tap a pocket)', onPress: () => setMoveSource(pocket) }]
-        : []),
-      ...MERGE_DIRECTIONS.filter((dir) =>
-        groupMergeUnion(cells, layout, pocket.slot.slotIndex, dir),
-      ).map((dir) => ({
-        text: {
-          left: 'Merge with left pocket',
-          right: 'Merge with right pocket',
-          up: 'Merge with pocket above',
-          down: 'Merge with pocket below',
-        }[dir],
-        onPress: () => applyMerge(pocket, dir),
-      })),
-      ...(pocket.slot.mergedGroupId !== null
-        ? [
-            {
-              text: 'Unmerge',
-              onPress: () =>
-                void unmergeGroup(db, pocket.slot.mergedGroupId!).then(touch),
-            },
-          ]
-        : []),
-      { text: 'Custom image…', onPress: () => void setPocketImage(pocket) },
-      ...(pocket.slot.customImageUri !== null
-        ? [
-            {
-              text: 'Remove custom image',
-              onPress: () => {
-                void deleteCustomImage(pocket.slot.customImageUri!)
-                  .then(() => setCustomImage(db, pocket.slot.id, null))
-                  .then(touch);
-              },
-            },
-          ]
         : []),
       ...(filled
         ? [
@@ -515,7 +434,7 @@ export function BinderScreen({ route, navigation }: Props) {
       executeMoveTo(pocket);
       return;
     }
-    if (pocket.slot.cardId == null && pocket.slot.customImageUri == null) {
+    if (pocket.slot.cardId == null) {
       navigation.navigate('PickerSets', { binderId, slotId: pocket.slot.id });
       return;
     }
@@ -648,13 +567,9 @@ export function BinderScreen({ route, navigation }: Props) {
             onValueChange={(value) => {
               void updateBinder(db, binderId, { variantStacking: value });
               const pockets = pages.flatMap((p) => p.pockets);
-              const unpinned = pockets.filter(
-                (p) =>
-                  p.slot.mergedGroupId === null && p.slot.customImageUri === null,
-              );
               if (value) {
                 const cardCounts = new Map<string, number>();
-                for (const p of unpinned) {
+                for (const p of pockets) {
                   if (p.slot.cardId)
                     cardCounts.set(p.slot.cardId, (cardCounts.get(p.slot.cardId) ?? 0) + 1);
                 }
@@ -673,7 +588,7 @@ export function BinderScreen({ route, navigation }: Props) {
                   );
                 }
               } else {
-                const stacks = unpinned.filter((p) => p.slot.quantity > 1).length;
+                const stacks = pockets.filter((p) => p.slot.quantity > 1).length;
                 if (stacks > 0) {
                   Alert.alert(
                     'Unstack duplicates?',

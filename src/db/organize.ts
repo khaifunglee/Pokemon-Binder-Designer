@@ -25,8 +25,6 @@ async function loadOrganizeSlots(db: Db, binderId: string): Promise<OrganizeSlot
       variant: slots.variant,
       quantity: slots.quantity,
       condition: slots.condition,
-      mergedGroupId: slots.mergedGroupId,
-      customImageUri: slots.customImageUri,
       cardName: cards.name,
       number: cards.number,
       setId: cards.setId,
@@ -68,7 +66,6 @@ async function loadOrganizeSlots(db: Db, binderId: string): Promise<OrganizeSlot
             rarity: r.rarity,
             supertype: r.supertype ?? '',
           },
-    pinned: r.mergedGroupId !== null || r.customImageUri !== null,
   }));
 }
 
@@ -82,15 +79,14 @@ export async function prepareOrganize(
 
   const organizeSlots = await loadOrganizeSlots(db, binderId);
   const entries: SortableEntry[] = organizeSlots
-    .filter((s) => !s.pinned && s.contents !== null && s.sortable !== null)
+    .filter((s) => s.contents !== null && s.sortable !== null)
     .map((s) => ({ slotId: s.slotId, ...s.sortable! }));
 
   const { slotsPerPage } = layoutSpec(binder.layout);
   const sequence = buildSequence(entries, strategy, { slotsPerPage });
-  const movableCount = organizeSlots.filter((s) => !s.pinned).length;
   const pagesToAdd = Math.max(
     0,
-    Math.ceil((sequence.length - movableCount) / slotsPerPage),
+    Math.ceil((sequence.length - organizeSlots.length) / slotsPerPage),
   );
   return { binder, organizeSlots, sequence, pagesToAdd };
 }

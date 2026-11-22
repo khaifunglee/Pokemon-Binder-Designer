@@ -32,8 +32,6 @@ export interface StackSlotState {
   variant: string | null;
   quantity: number;
   condition: string | null;
-  /** Merged-group / custom-image pockets are never touched. */
-  pinned: boolean;
 }
 
 export interface ConsolidatePlan {
@@ -45,12 +43,12 @@ export interface ConsolidatePlan {
 
 /**
  * Turning stacking ON with duplicates already placed: combine every
- * unpinned pocket holding the same card into the earliest pocket.
+ * pocket holding the same card into the earliest pocket.
  */
 export function planConsolidate(slots: StackSlotState[]): ConsolidatePlan {
   const byCard = new Map<string, StackSlotState[]>();
   for (const s of slots) {
-    if (s.pinned || s.cardId === null) continue;
+    if (s.cardId === null) continue;
     const list = byCard.get(s.cardId) ?? [];
     list.push(s);
     byCard.set(s.cardId, list);
@@ -79,7 +77,7 @@ export interface UnstackPlan {
 export function planUnstack(slots: StackSlotState[]): UnstackPlan {
   const plan: UnstackPlan = { updates: [], overflow: [] };
   for (const s of slots) {
-    if (s.pinned || s.cardId === null || s.quantity <= 1) continue;
+    if (s.cardId === null || s.quantity <= 1) continue;
     plan.updates.push({ slotId: s.slotId });
     for (let i = 1; i < s.quantity; i++) {
       plan.overflow.push({ cardId: s.cardId, variant: s.variant, condition: s.condition });

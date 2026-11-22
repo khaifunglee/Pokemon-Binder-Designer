@@ -37,9 +37,7 @@ export async function computeMovePlan(
   );
 
   const pockets: DiffPocket[] = prep.organizeSlots
-    .map((s, i) => ({ ordinal: i, occupied: s.contents !== null, pinned: s.pinned }))
-    .filter((p) => !p.pinned)
-    .map(({ ordinal, occupied }) => ({ ordinal, occupied }));
+    .map((s, i) => ({ ordinal: i, occupied: s.contents !== null }));
 
   // Pockets on pages the user will add: empty and usable.
   const existingCount = prep.organizeSlots.length;
@@ -47,7 +45,7 @@ export async function computeMovePlan(
     pockets.push({ ordinal: existingCount + i, occupied: false });
   }
 
-  // sequence[i] belongs in the i-th unpinned pocket.
+  // sequence[i] belongs in the i-th pocket.
   const movableOrdinals = pockets.map((p) => p.ordinal);
   const targetSources = new Map<number, number>();
   prep.sequence.forEach((entry, i) => {

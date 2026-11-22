@@ -31,8 +31,6 @@ export interface OrganizeSlot {
   contents: PocketContents | null;
   /** Sort metadata for filled pockets (join with cards/sets). */
   sortable: Omit<SortableEntry, 'slotId'> | null;
-  /** Merged regions and custom images are pinned: never moved or overwritten. */
-  pinned: boolean;
 }
 
 export interface OrganizeChange {
@@ -118,20 +116,19 @@ export function buildSequence(
 }
 
 /**
- * Map a sequence onto the binder's unpinned pockets in page order and
- * emit only the pockets whose contents change. The caller must ensure
- * there are at least `sequence.length` unpinned pockets (adding pages).
+ * Map a sequence onto the binder's pockets in page order and emit only
+ * the pockets whose contents change. The caller must ensure there are
+ * at least `sequence.length` pockets (adding pages).
  */
 export function planFromSequence(
   slots: OrganizeSlot[],
   sequence: (SortableEntry | null)[],
 ): OrganizeChange[] {
-  const movable = slots.filter((s) => !s.pinned);
-  const contentsBySlot = new Map(movable.map((s) => [s.slotId, s.contents] as const));
+  const contentsBySlot = new Map(slots.map((s) => [s.slotId, s.contents] as const));
 
   const changes: OrganizeChange[] = [];
-  for (let i = 0; i < movable.length; i++) {
-    const target = movable[i];
+  for (let i = 0; i < slots.length; i++) {
+    const target = slots[i];
     const entry = i < sequence.length ? sequence[i] : null;
     const newContents = entry === null ? null : (contentsBySlot.get(entry.slotId) ?? null);
     const old = target.contents;

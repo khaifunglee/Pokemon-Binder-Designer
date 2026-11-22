@@ -117,35 +117,24 @@ describe('buildSequence — colour/rarity page grouping', () => {
 });
 
 describe('planFromSequence', () => {
-  const filled = (slotId: string, cardId: string, pinned = false): OrganizeSlot => ({
+  const filled = (slotId: string, cardId: string): OrganizeSlot => ({
     slotId,
     contents: { cardId, variant: 'normal', quantity: 1, condition: null },
     sortable: null,
-    pinned,
   });
-  const empty = (slotId: string, pinned = false): OrganizeSlot => ({
+  const empty = (slotId: string): OrganizeSlot => ({
     slotId,
     contents: null,
     sortable: null,
-    pinned,
   });
 
-  it('maps entries and gaps onto unpinned pockets, emitting only changes', () => {
+  it('maps entries and empties onto pockets in order, emitting only changes', () => {
     const slots = [empty('s1'), filled('s2', 'b'), filled('s3', 'a'), empty('s4')];
     const sequence = [entry('s3', 'a'), null, entry('s2', 'b')];
     expect(planFromSequence(slots, sequence)).toEqual([
       { slotId: 's1', contents: { cardId: 'a', variant: 'normal', quantity: 1, condition: null } },
       { slotId: 's2', contents: null },
       { slotId: 's3', contents: { cardId: 'b', variant: 'normal', quantity: 1, condition: null } },
-    ]);
-  });
-
-  it('skips pinned pockets entirely', () => {
-    const slots = [filled('s1', 'pinned', true), empty('s2'), filled('s3', 'a')];
-    const sequence = [entry('s3', 'a')];
-    expect(planFromSequence(slots, sequence)).toEqual([
-      { slotId: 's2', contents: { cardId: 'a', variant: 'normal', quantity: 1, condition: null } },
-      { slotId: 's3', contents: null },
     ]);
   });
 

@@ -15,8 +15,6 @@ async function loadStackSlots(db: Db, binderId: string): Promise<StackSlotState[
       variant: slots.variant,
       quantity: slots.quantity,
       condition: slots.condition,
-      mergedGroupId: slots.mergedGroupId,
-      customImageUri: slots.customImageUri,
     })
     .from(slots)
     .innerJoin(pages, eq(slots.pageId, pages.id))
@@ -28,7 +26,6 @@ async function loadStackSlots(db: Db, binderId: string): Promise<StackSlotState[
     variant: r.variant,
     quantity: r.quantity,
     condition: r.condition,
-    pinned: r.mergedGroupId !== null || r.customImageUri !== null,
   }));
 }
 
@@ -62,7 +59,7 @@ export async function unstackDuplicates(db: Db, binderId: string): Promise<numbe
   if (plan.overflow.length === 0) return 0;
 
   let empties = state
-    .filter((s) => !s.pinned && s.cardId === null)
+    .filter((s) => s.cardId === null)
     .map((s) => s.slotId);
 
   if (empties.length < plan.overflow.length) {

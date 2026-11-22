@@ -38,7 +38,7 @@ function slot(
   quantity = 1,
   opts: Partial<StackSlotState> = {},
 ): StackSlotState {
-  return { slotId, cardId, quantity, variant: 'normal', condition: null, pinned: false, ...opts };
+  return { slotId, cardId, quantity, variant: 'normal', condition: null, ...opts };
 }
 
 describe('planConsolidate', () => {
@@ -54,12 +54,8 @@ describe('planConsolidate', () => {
     expect(plan.clears).toEqual(['s3', 's5']);
   });
 
-  it('skips pinned pockets and cards without duplicates', () => {
-    const plan = planConsolidate([
-      slot('s1', 'a'),
-      slot('s2', 'a', 1, { pinned: true }),
-      slot('s3', 'b'),
-    ]);
+  it('skips cards without duplicates', () => {
+    const plan = planConsolidate([slot('s1', 'a'), slot('s2', null), slot('s3', 'b')]);
     expect(plan).toEqual({ updates: [], clears: [] });
   });
 });
@@ -77,10 +73,5 @@ describe('planUnstack', () => {
       { cardId: 'a', variant: 'holofoil', condition: 'NM' },
       { cardId: 'c', variant: 'normal', condition: null },
     ]);
-  });
-
-  it('leaves pinned stacks alone', () => {
-    const plan = planUnstack([slot('s1', 'a', 4, { pinned: true })]);
-    expect(plan).toEqual({ updates: [], overflow: [] });
   });
 });
