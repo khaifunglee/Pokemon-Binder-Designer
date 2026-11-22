@@ -6,7 +6,7 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-17): MVP (M0–M4) + M5 TCGdex migration code-complete; device test pass pending before any new work. Ordered roadmap + decisions: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-22): first device test pass done; concept review gave every feature a verdict (keep / fix / change / leave out) and set a new 8-step roadmap. Next: roadmap step 1 (cleanup + quick fixes). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
 
 ## M4 test feedback round (2026-07-13) — all addressed
 
