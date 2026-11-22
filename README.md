@@ -22,7 +22,7 @@ _Screenshots coming soon._
 - **Set checklists** with rapid multi-tap toggles for tracking what you own.
 - **CSV import** from TCGplayer, pkmnbindr and Collectr exports, with a preview and per-line problem report.
 - **Collection stats**: completion %, missing-card list, and cost-to-complete from TCGplayer market prices, shown in your chosen currency.
-- **Variant stacking**, **merged pockets with custom images**, and **PNG export** of a binder page.
+- **Variant stacking** and **PNG export** of a binder page.
 
 Everything runs on-device: no account, no backend, works offline after card data is cached.
 
@@ -36,7 +36,7 @@ Everything runs on-device: no account, no backend, works offline after card data
 | Data | `expo-sqlite` + Drizzle ORM (migrations via drizzle-kit) |
 | State | Zustand (transient UI signals only; SQLite is the source of truth) |
 | External data | TCGdex API (cards, images, TCGplayer prices), frankfurter.dev (ECB exchange rates), both keyless |
-| Device APIs | expo-image (disk cache), expo-haptics, expo-document-picker, expo-image-picker, expo-sharing, react-native-view-shot |
+| Device APIs | expo-image (disk cache), expo-haptics, expo-document-picker, expo-sharing, react-native-view-shot |
 | Testing | Jest via `jest-expo` |
 
 ## Architecture

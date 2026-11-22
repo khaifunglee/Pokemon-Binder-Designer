@@ -64,8 +64,8 @@ Product decisions and per-feature verdicts: `docs/idea.md` (concept review 2026-
 - `collection`: card_id, variant, quantity_owned (source of truth for "what I own").
   Template binders and checklists are both views over it.
 - `kind`, `template_scope`, `dex_ids` and `illustrator` are planned (roadmap steps 2 and 5).
-  The merged-slot columns (`merged_group_id`, `custom_image_uri`) are cut and will be removed
-  in roadmap step 1. Until each change lands, `src/db/schema.ts` is the truth.
+  The merged-slot columns were removed in roadmap step 1 (migration 0004). Until each planned
+  change lands, `src/db/schema.ts` is the truth.
 
 ## UX quality bars (measurable, non-negotiable)
 
