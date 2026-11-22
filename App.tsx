@@ -20,7 +20,7 @@ import type { RootStackParamList } from './src/navigation/types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const { ready, error, status } = useDbReady();
+  const { ready, error } = useDbReady();
 
   if (error) {
     return (
@@ -29,13 +29,7 @@ export default function App() {
       </View>
     );
   }
-  if (!ready) {
-    return (
-      <View style={styles.gate}>
-        {status !== null && <Text style={styles.gateStatus}>{status}</Text>}
-      </View>
-    );
-  }
+  if (!ready) return <View style={styles.gate} />;
 
   return (
     <GestureHandlerRootView style={styles.root}>
@@ -87,5 +81,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 10,
   },
-  gateStatus: { color: '#78909c', fontSize: 14 },
 });
