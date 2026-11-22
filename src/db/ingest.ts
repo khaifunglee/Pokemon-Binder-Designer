@@ -54,12 +54,16 @@ export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
  * background at launch; the UI never waits on it.
  *
  * TCG Pocket (digital-only) sets are excluded and never fetched. Their
- * ids come from one small series lookup on every sync (no cache); if it
- * fails, the whole sync stops rather than ingesting unfiltered.
+ * ids come from one small series lookup on every sync (no cache), run
+ * alongside the set list. If either fails, the whole sync stops before
+ * anything is stored, rather than ingesting unfiltered.
  */
 export async function ingestSets(db: Db): Promise<number> {
-  const pocketIds = new Set(await fetchSeriesSetIds(POCKET_SERIES_ID));
-  const briefs = await fetchSetBriefs();
+  const [pocketSetIds, briefs] = await Promise.all([
+    fetchSeriesSetIds(POCKET_SERIES_ID),
+    fetchSetBriefs(),
+  ]);
+  const pocketIds = new Set(pocketSetIds);
   const known = new Set(
     (await db.select({ id: sets.id }).from(sets)).map((r) => r.id),
   );
