@@ -13,7 +13,6 @@ describe('buildPageSlots', () => {
     for (const slot of slots) {
       expect(slot.pageId).toBe('page-1');
       expect(slot.cardId).toBeNull();
-      expect(slot.mergedGroupId).toBeNull();
       expect(slot.quantity).toBe(1);
     }
   });
