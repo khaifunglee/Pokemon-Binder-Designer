@@ -7,7 +7,7 @@ import {
   fetchSetDetails,
   fetchSeriesSetIds,
 } from '../lib/tcgdex/api';
-import { POCKET_SERIES_ID, selectSetsToFetch } from '../lib/tcgdex/filter';
+import { isKnownNonPocketSet, POCKET_SERIES_ID, selectSetsToFetch } from '../lib/tcgdex/filter';
 import { extractPrices, mapCardDetail, mapSetDetail } from '../lib/tcgdex/mappers';
 import type { DexSetDetail } from '../lib/tcgdex/types';
 import type { Db } from './client';
@@ -69,9 +69,7 @@ export async function ingestSets(db: Db): Promise<number> {
   );
   const missing = selectSetsToFetch(briefs, known, pocketIds);
   if (missing.length === 0) return 0;
-  const details = (await fetchSetDetails(missing)).filter(
-    (d) => d.serie?.id !== POCKET_SERIES_ID,
-  );
+  const details = (await fetchSetDetails(missing)).filter(isKnownNonPocketSet);
   await upsertSets(db, details.map(mapSetDetail));
   return details.length;
 }

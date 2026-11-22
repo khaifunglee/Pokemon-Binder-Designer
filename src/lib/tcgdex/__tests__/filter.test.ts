@@ -1,5 +1,5 @@
-import { selectSetsToFetch } from '../filter';
-import type { DexSetBrief } from '../types';
+import { isKnownNonPocketSet, POCKET_SERIES_ID, selectSetsToFetch } from '../filter';
+import type { DexSetBrief, DexSetDetail } from '../types';
 
 const brief = (id: string): DexSetBrief => ({ id, name: id, cardCount: { total: 1, official: 1 } });
 
@@ -35,5 +35,29 @@ describe('selectSetsToFetch — edge cases', () => {
     expect(selectSetsToFetch([brief('A1'), brief('sv2')], new Set(['A1']), new Set(['A1']))).toEqual([
       'sv2',
     ]);
+  });
+});
+
+describe('isKnownNonPocketSet', () => {
+  const detail = (serie?: { id: string; name: string }): DexSetDetail => ({
+    ...brief('x1'),
+    serie,
+    cards: [],
+  });
+
+  it('keeps a set whose series is named and is not TCG Pocket', () => {
+    expect(isKnownNonPocketSet(detail({ id: 'sv', name: 'Scarlet & Violet' }))).toBe(true);
+  });
+
+  it('rejects a TCG Pocket set', () => {
+    expect(isKnownNonPocketSet(detail({ id: POCKET_SERIES_ID, name: 'Pokémon TCG Pocket' }))).toBe(false);
+  });
+
+  it('rejects a set with no series, so a Pocket set the series lookup missed cannot slip in', () => {
+    expect(isKnownNonPocketSet(detail())).toBe(false);
+  });
+
+  it('rejects a set whose series id is empty', () => {
+    expect(isKnownNonPocketSet(detail({ id: '', name: '' }))).toBe(false);
   });
 });

@@ -100,7 +100,8 @@ App → useDbReady
      (0004 is the one-time step 1 wipe of user data + catalogue)
   2. ready → render navigation
   3. background: ingestSets() — look up TCG Pocket set ids (series tcgp), diff the
-     set list without them, fetch details for new sets only. Lookup fails → skip sync.
+     set list without them, fetch details for new sets only, and keep only details
+     that name a non-Pocket series. Lookup fails → skip sync.
 ```
 
 ### Reads: offline-first and reactive
