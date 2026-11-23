@@ -80,3 +80,36 @@ export function fetchSetDetails(
 ): Promise<DexSetDetail[]> {
   return pooledFetch(setIds, fetchSetDetail, onProgress);
 }
+
+/**
+ * Like pooledFetch, but one failure doesn't stop the rest: onboarding
+ * keeps every set that downloads and retries only the ones that didn't.
+ */
+export async function pooledSettled<T, R>(
+  items: T[],
+  worker: (item: T) => Promise<R>,
+  concurrency: number,
+  onProgress?: (done: number, total: number) => void,
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  let done = 0;
+
+  const run = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index]) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+      done++;
+      onProgress?.(done, items.length);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => run()),
+  );
+  return results;
+}

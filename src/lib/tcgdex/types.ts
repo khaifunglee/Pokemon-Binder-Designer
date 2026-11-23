@@ -60,3 +60,27 @@ export interface DexCardDetail {
     } & Record<string, DexPriceEntry | string | undefined>;
   };
 }
+
+/**
+ * A card from the GraphQL endpoint (`cards(filters: { id })`), verified
+ * against live payloads 2026-11-23. Nullable where TCGdex returns null for
+ * incomplete sets (e.g. me06: image and dexId null).
+ */
+export interface GqlCard {
+  id: string;
+  localId: string;
+  name: string;
+  rarity?: string | null;
+  category: string;
+  types?: string[] | null;
+  dexId?: number[] | null;
+  illustrator?: string | null;
+  image?: string | null;
+  set: { id: string };
+  variants?: {
+    normal?: boolean;
+    reverse?: boolean;
+    holo?: boolean;
+    firstEdition?: boolean;
+  } | null;
+}

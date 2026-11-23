@@ -4,6 +4,7 @@ import {
   extractPrices,
   mapCardBrief,
   mapCardDetail,
+  mapGraphqlCard,
   mapSetDetail,
 } from '../mappers';
 import type { DexCardDetail, DexSetDetail } from '../types';
@@ -120,6 +121,40 @@ describe('mapCardBrief', () => {
       name: 'Beedrill ex',
       variants: [],
       supertype: '',
+    });
+  });
+});
+
+describe('mapGraphqlCard', () => {
+  it('maps a Delta Reign card with no image or dex ids (me06-001, 2026-11-23)', () => {
+    expect(
+      mapGraphqlCard({
+        id: 'me06-001',
+        localId: '001',
+        name: 'Heracross',
+        rarity: 'Common',
+        category: 'Pokemon',
+        types: ['Grass'],
+        dexId: null,
+        illustrator: 'Satoshi Ito',
+        image: null,
+        set: { id: 'me06' },
+        variants: { normal: true, reverse: false, holo: false, firstEdition: false },
+      }),
+    ).toEqual({
+      id: 'me06-001',
+      name: 'Heracross',
+      setId: 'me06',
+      number: '001',
+      rarity: 'Common',
+      supertype: 'Pokémon',
+      types: ['Grass'],
+      nationalPokedexNumbers: [],
+      illustrator: 'Satoshi Ito',
+      imageSmallUri: null,
+      imageLargeUri: null,
+      variants: ['normal'],
+      flagVariants: ['normal'],
     });
   });
 });

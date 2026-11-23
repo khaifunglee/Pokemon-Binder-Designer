@@ -1,4 +1,4 @@
-import { fetchSeriesSetIds } from '../api';
+import { fetchSeriesSetIds, pooledSettled } from '../api';
 import { POCKET_SERIES_ID } from '../filter';
 import type { DexSetBrief } from '../types';
 
@@ -99,5 +99,42 @@ describe('fetchSeriesSetIds — malformed and failed lookups', () => {
     respondWith({ id: 'tcgp', sets: [brief('A1')] });
     await fetchSeriesSetIds(POCKET_SERIES_ID);
     expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/tcgp');
+  });
+});
+
+describe('pooledSettled', () => {
+  it('keeps going past failures and preserves input order', async () => {
+    const results = await pooledSettled(
+      [1, 2, 3],
+      async (n) => {
+        if (n === 2) throw new Error('boom');
+        return n * 10;
+      },
+      2,
+    );
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
+    expect(results[0]).toEqual({ status: 'fulfilled', value: 10 });
+  });
+
+  it('never runs more workers at once than the concurrency', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    await pooledSettled(
+      [1, 2, 3, 4, 5],
+      async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight--;
+      },
+      2,
+    );
+    expect(peak).toBe(2);
+  });
+
+  it('reports progress after each item', async () => {
+    const onProgress = jest.fn();
+    await pooledSettled([1, 2], async () => undefined, 4, onProgress);
+    expect(onProgress).toHaveBeenLastCalledWith(2, 2);
   });
 });
