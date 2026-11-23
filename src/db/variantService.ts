@@ -19,20 +19,19 @@ export class VariantInUseError extends Error {
   }
 }
 
-async function loadOne(db: DbOrTx, cardId: string): Promise<StoredVariantSources> {
-  const sources = (await loadVariantSources(db, [cardId])).get(cardId);
+function loadOne(db: DbOrTx, cardId: string): StoredVariantSources {
+  const sources = loadVariantSources(db, [cardId]).get(cardId);
   if (!sources) throw new Error(`card ${cardId} is not in the catalogue`);
   return sources;
 }
 
-async function writeManual(
+function writeManual(
   db: DbOrTx,
   cardId: string,
   sources: StoredVariantSources,
   manual: string[],
-): Promise<void> {
-  await db
-    .update(cards)
+): void {
+  db.update(cards)
     .set({
       manualVariants: manual,
       variants: mergeVariants({
@@ -42,7 +41,8 @@ async function writeManual(
         inUse: sources.inUse,
       }),
     })
-    .where(eq(cards.id, cardId));
+    .where(eq(cards.id, cardId))
+    .run();
 }
 
 /**
@@ -50,12 +50,13 @@ async function writeManual(
  * placeholder flags). Stored in manual_variants, which no sync touches.
  */
 export async function addManualVariant(db: Db, cardId: string, variant: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const sources = await loadOne(tx, cardId);
+  // Sync callback: see loadVariantSources on drizzle's expo-sqlite transactions.
+  db.transaction((tx) => {
+    const sources = loadOne(tx, cardId);
     if (!canAddManualVariant(variant, sources.variants)) {
       throw new Error(`can't add ${variant} to ${cardId}`);
     }
-    await writeManual(tx, cardId, sources, [...sources.manual, variant]);
+    writeManual(tx, cardId, sources, [...sources.manual, variant]);
   });
   logCatalogue(`manual variant ${cardId} +${variant}`);
 }
@@ -67,13 +68,13 @@ export async function removeManualVariant(
   variant: string,
 ): Promise<void> {
   let removed = false;
-  await db.transaction(async (tx) => {
-    const sources = await loadOne(tx, cardId);
+  db.transaction((tx) => {
+    const sources = loadOne(tx, cardId);
     if (!sources.manual.includes(variant)) return;
     if (!removableManualVariants(sources.manual, sources.inUse).includes(variant)) {
       throw new VariantInUseError(cardId, variant);
     }
-    await writeManual(
+    writeManual(
       tx,
       cardId,
       sources,

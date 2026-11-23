@@ -27,33 +27,38 @@ export function chunk<T>(items: T[], size: number = CHUNK_SIZE): T[][] {
 /**
  * The stored variant sources of each card, keyed by card id. Cards not in
  * SQLite yet are absent from the map.
+ *
+ * Synchronous on purpose: drizzle's expo-sqlite transaction runs its
+ * callback synchronously and commits right after, so only sync queries
+ * (.all() / .run()) actually execute inside the transaction.
  */
-export async function loadVariantSources(
+export function loadVariantSources(
   db: DbOrTx,
   cardIds: string[],
-): Promise<Map<string, StoredVariantSources>> {
+): Map<string, StoredVariantSources> {
   const out = new Map<string, StoredVariantSources>();
   for (const ids of chunk(cardIds)) {
-    const [cardRows, owned, placed] = await Promise.all([
-      db
-        .select({
-          id: cards.id,
-          flags: cards.flagVariants,
-          prices: cards.priceVariants,
-          manual: cards.manualVariants,
-          variants: cards.variants,
-        })
-        .from(cards)
-        .where(inArray(cards.id, ids)),
-      db
-        .select({ cardId: collection.cardId, variant: collection.variant })
-        .from(collection)
-        .where(inArray(collection.cardId, ids)),
-      db
-        .select({ cardId: slots.cardId, variant: slots.variant })
-        .from(slots)
-        .where(inArray(slots.cardId, ids)),
-    ]);
+    const cardRows = db
+      .select({
+        id: cards.id,
+        flags: cards.flagVariants,
+        prices: cards.priceVariants,
+        manual: cards.manualVariants,
+        variants: cards.variants,
+      })
+      .from(cards)
+      .where(inArray(cards.id, ids))
+      .all();
+    const owned = db
+      .select({ cardId: collection.cardId, variant: collection.variant })
+      .from(collection)
+      .where(inArray(collection.cardId, ids))
+      .all();
+    const placed = db
+      .select({ cardId: slots.cardId, variant: slots.variant })
+      .from(slots)
+      .where(inArray(slots.cardId, ids))
+      .all();
     for (const row of cardRows) {
       out.set(row.id, {
         flags: row.flags ?? [],

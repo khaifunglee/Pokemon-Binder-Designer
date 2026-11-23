@@ -1,11 +1,11 @@
 import { eq, max, sql } from 'drizzle-orm';
 
-import { logCatalogue } from '../lib/catalogueLog';
+import { logCatalogue, warnCatalogue } from '../lib/catalogueLog';
 import {
   fetchCardDetails,
   fetchSetBriefs,
   fetchSetDetail,
-  fetchSetDetails,
+  fetchSetDetailsSettled,
   fetchSeriesSetIds,
 } from '../lib/tcgdex/api';
 import { isKnownNonPocketSet, POCKET_SERIES_ID, selectSetsToFetch } from '../lib/tcgdex/filter';
@@ -19,9 +19,10 @@ import { chunk, loadVariantSources } from './variantSources';
 
 export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
   if (rows.length === 0) return;
-  await db.transaction(async (tx) => {
+  // Sync callback + .run(): see loadVariantSources on drizzle's expo-sqlite transactions.
+  db.transaction((tx) => {
     for (const batch of chunk(rows)) {
-      await tx
+      tx
         .insert(sets)
         .values(batch)
         .onConflictDoUpdate({
@@ -37,7 +38,8 @@ export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
             symbolUri: sql`excluded.symbol_uri`,
             logoUri: sql`excluded.logo_uri`,
           },
-        });
+        })
+        .run();
     }
   });
 }
@@ -64,9 +66,20 @@ export async function ingestSets(db: Db): Promise<number> {
   );
   const missing = selectSetsToFetch(briefs, known, pocketIds);
   if (missing.length === 0) return 0;
-  const details = (await fetchSetDetails(missing)).filter(isKnownNonPocketSet);
-  await upsertSets(db, details.map(mapSetDetail));
-  return details.length;
+  return refreshSetRows(db, missing);
+}
+
+/**
+ * Fetch REST set details and upsert the ones that arrive and name a
+ * non-Pocket series. One bad set is logged and retried next sync instead
+ * of failing the whole listing (and trapping onboarding).
+ */
+export async function refreshSetRows(db: Db, setIds: string[]): Promise<number> {
+  const { details, failedIds } = await fetchSetDetailsSettled(setIds);
+  if (failedIds.length > 0) warnCatalogue(`set details failed for ${failedIds.join(', ')}`);
+  const kept = details.filter(isKnownNonPocketSet);
+  await upsertSets(db, kept.map(mapSetDetail));
+  return kept.length;
 }
 
 /**
@@ -83,8 +96,8 @@ export async function applyRestDetails(
   if (details.length === 0) return;
   const now = new Date();
   const unknownKeys = new Set<string>();
-  await db.transaction(async (tx) => {
-    const stored = await loadVariantSources(
+  db.transaction((tx) => {
+    const stored = loadVariantSources(
       tx,
       details.map((d) => d.id),
     );
@@ -93,8 +106,7 @@ export async function applyRestDetails(
       const sources = stored.get(detail.id)!;
       const flags = deriveVariants(detail);
       const prices = priceVariants(detail.pricing?.tcgplayer, (key) => unknownKeys.add(key));
-      await tx
-        .update(cards)
+      tx.update(cards)
         .set({
           flagVariants: flags,
           priceVariants: prices,
@@ -106,15 +118,15 @@ export async function applyRestDetails(
             inUse: sources.inUse,
           }),
         })
-        .where(eq(cards.id, detail.id));
+        .where(eq(cards.id, detail.id))
+        .run();
     }
     if (!opts.storePrices) return;
     const priceRows = known.flatMap((c) =>
       extractPrices(c).map((p) => ({ cardId: c.id, ...p, fetchedAt: now })),
     );
     for (const batch of chunk(priceRows)) {
-      await tx
-        .insert(cardPrices)
+      tx.insert(cardPrices)
         .values(batch)
         .onConflictDoUpdate({
           target: [cardPrices.cardId, cardPrices.variant],
@@ -122,7 +134,8 @@ export async function applyRestDetails(
             marketUsd: sql`excluded.market_usd`,
             fetchedAt: sql`excluded.fetched_at`,
           },
-        });
+        })
+        .run();
     }
   });
   if (unknownKeys.size > 0) {

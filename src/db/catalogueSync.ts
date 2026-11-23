@@ -1,7 +1,7 @@
 import { count, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import { logCatalogue, warnCatalogue } from '../lib/catalogueLog';
-import { fetchCardDetails, pooledSettled } from '../lib/tcgdex/api';
+import { fetchCardDetailsSettled, pooledSettled } from '../lib/tcgdex/api';
 import { fetchSetCards } from '../lib/tcgdex/graphql';
 import { mapGraphqlCard } from '../lib/tcgdex/mappers';
 import {
@@ -11,6 +11,7 @@ import {
   RECHECK_INTERVAL_MS,
   setsNeedingTopUp,
   setsToRecheck,
+  setsToRefreshMetadata,
   setsToSync,
   topUpsToReopen,
 } from '../lib/tcgdex/syncPlan';
@@ -24,7 +25,7 @@ import {
   setSetting,
 } from './appSettings';
 import type { Db } from './client';
-import { applyRestDetails, fetchSetCardDetails, ingestSets } from './ingest';
+import { applyRestDetails, ingestSets, refreshSetRows } from './ingest';
 import { cards, sets } from './schema';
 import { chunk, loadVariantSources } from './variantSources';
 
@@ -81,8 +82,10 @@ export async function syncSetCards(
   const placeholderFlags = isPlaceholderFlagSet(rows.map((r) => r.flagVariants));
   const now = new Date();
 
-  await db.transaction(async (tx) => {
-    const stored = await loadVariantSources(
+  // Sync callback + .run(): drizzle's expo-sqlite transaction commits as
+  // soon as the callback returns, so awaited queries would run outside it.
+  db.transaction((tx) => {
+    const stored = loadVariantSources(
       tx,
       rows.map((r) => r.id),
     );
@@ -99,8 +102,7 @@ export async function syncSetCards(
       };
     });
     for (const batch of chunk(merged)) {
-      await tx
-        .insert(cards)
+      tx.insert(cards)
         .values(batch)
         .onConflictDoUpdate({
           target: cards.id,
@@ -120,12 +122,13 @@ export async function syncSetCards(
             flagVariants: sql`excluded.flag_variants`,
             variants: sql`excluded.variants`,
           },
-        });
+        })
+        .run();
     }
-    await tx
-      .update(sets)
+    tx.update(sets)
       .set({ placeholderFlags, cardsIngestedAt: now })
-      .where(eq(sets.id, setId));
+      .where(eq(sets.id, setId))
+      .run();
   });
 
   logCatalogue(`synced ${setId} (${rows.length} cards)`);
@@ -156,22 +159,30 @@ async function syncSets(
 }
 
 /**
- * Variant top-up for one set: REST details for every card, variants from
- * TCGplayer price keys. Prices are discarded (D19). All-or-nothing, so an
- * interrupted set is simply redone.
+ * Variant top-up for one set: REST details per card, variants from
+ * TCGplayer price keys. Prices are discarded (D19). Only cards not checked
+ * yet are fetched (a re-opened set fetches all), cards that arrive are
+ * applied, and the set is marked checked only when none failed, so a
+ * retry re-fetches just the failures.
  */
 export async function topUpSet(db: Db, setId: string): Promise<void> {
   const before = await db
-    .select({ id: cards.id, variants: cards.variants })
+    .select({ id: cards.id, variants: cards.variants, prices: cards.priceVariants })
     .from(cards)
     .where(eq(cards.setId, setId));
-  const details = await fetchSetCardDetails(setId, (done, total) => {
+  const unchecked = before.filter((c) => c.prices == null).map((c) => c.id);
+  const ids = unchecked.length > 0 ? unchecked : before.map((c) => c.id);
+  const { details, failedIds } = await fetchCardDetailsSettled(ids, (done, total) => {
     if (done % 10 === 0 || done === total) {
       logCatalogue(`variant top-up ${setId}: ${done}/${total} cards`);
     }
   });
   await applyRestDetails(db, details, { storePrices: false });
-  await db.update(sets).set({ variantsCheckedAt: new Date() }).where(eq(sets.id, setId));
+  if (failedIds.length === 0) {
+    await db.update(sets).set({ variantsCheckedAt: new Date() }).where(eq(sets.id, setId));
+  } else {
+    warnCatalogue(`variant top-up ${setId}: ${failedIds.length} cards failed, retrying next start`);
+  }
 
   const after = await db
     .select({ id: cards.id, variants: cards.variants })
@@ -186,6 +197,10 @@ export async function topUpSet(db: Db, setId: string): Promise<void> {
     }
   }
   for (const [variant, n] of gained) logCatalogue(`${setId} +${variant} on ${n} cards`);
+  // Every request failing is the offline signal for the caller's loop.
+  if (ids.length > 0 && details.length === 0) {
+    throw new TypeError(`variant top-up ${setId}: no card details arrived`);
+  }
 }
 
 const isNetworkError = (e: unknown): boolean =>
@@ -275,20 +290,32 @@ async function missingImageCounts(db: Db): Promise<Map<string, number>> {
   return new Map(rows.map((r) => [r.setId, r.n]));
 }
 
-/** Daily: recent / incomplete sets, reopened top-ups, unpriced cards. */
+/**
+ * Daily: refresh recent / incomplete set rows and their cards, re-open
+ * recent placeholder top-ups, re-check unpriced cards weekly. Each stage
+ * fails on its own; the timestamp is set only when all of them succeeded.
+ */
 async function runDailyRecheck(db: Db, now: Date): Promise<void> {
+  let clean = true;
   const setRows = await loadSetRows(db);
   const missing = await missingImageCounts(db);
-  const recheck = setsToRecheck(
-    setRows.map((s) => ({
-      id: s.id,
-      releaseDate: s.releaseDate,
-      missingImages: missing.get(s.id) ?? 0,
-    })),
-    now,
-  );
+  const withImages = setRows.map((s) => ({
+    id: s.id,
+    releaseDate: s.releaseDate,
+    total: s.total,
+    missingImages: missing.get(s.id) ?? 0,
+  }));
+
+  // Set rows first: a new set's total and release date fill in over weeks.
+  const refresh = setsToRefreshMetadata(withImages, now);
+  if (refresh.length > 0) {
+    const refreshed = await refreshSetRows(db, refresh);
+    if (refreshed < refresh.length) clean = false;
+  }
+
+  const recheck = setsToRecheck(withImages, now);
   logCatalogue(`re-check: ${recheck.length} sets (recent or missing images)`);
-  const failed = await syncSets(db, recheck);
+  if ((await syncSets(db, recheck)).length > 0) clean = false;
 
   const reopen = topUpsToReopen(setRows, now);
   if (reopen.length > 0) {
@@ -307,10 +334,12 @@ async function runDailyRecheck(db: Db, now: Date): Promise<void> {
   const unpriced = cardsDuePriceRecheck(unpricedRows, now);
   if (unpriced.length > 0) logCatalogue(`re-checking prices for ${unpriced.length} unpriced cards`);
   for (const ids of chunk(unpriced, UNPRICED_BATCH)) {
-    await applyRestDetails(db, await fetchCardDetails(ids), { storePrices: false });
+    const { details, failedIds } = await fetchCardDetailsSettled(ids);
+    await applyRestDetails(db, details, { storePrices: false });
+    if (failedIds.length > 0) clean = false;
   }
 
-  if (failed.length === 0) await setSetting(db, CATALOGUE_RECHECKED_KEY, now.toISOString());
+  if (clean) await setSetting(db, CATALOGUE_RECHECKED_KEY, now.toISOString());
 }
 
 /**
@@ -323,16 +352,25 @@ export async function runStartupSync(db: Db, now: Date = new Date()): Promise<vo
     phase: 'checking',
     message: 'Checking for card updates in the background…',
   });
-  try {
-    await ingestSets(db);
-    await syncSets(db, setsToSync(await loadSetRows(db)));
-    if (isDue(await getSetting(db, CATALOGUE_RECHECKED_KEY), now, RECHECK_INTERVAL_MS)) {
-      await runDailyRecheck(db, now);
+  // Each stage in its own try: one failure (often just offline) must not
+  // skip the stages after it, e.g. the variant top-up.
+  const stage = async (name: string, work: () => Promise<unknown>) => {
+    try {
+      await work();
+    } catch (e) {
+      warnCatalogue(`${name} stopped`, e);
     }
-    await runVariantTopUp(db);
+  };
+  try {
+    await stage('set listing', () => ingestSets(db));
+    await stage('set sync', async () => syncSets(db, setsToSync(await loadSetRows(db))));
+    await stage('daily re-check', async () => {
+      if (isDue(await getSetting(db, CATALOGUE_RECHECKED_KEY), now, RECHECK_INTERVAL_MS)) {
+        await runDailyRecheck(db, now);
+      }
+    });
+    await stage('variant top-up', () => runVariantTopUp(db));
     logCatalogue('up to date');
-  } catch (e) {
-    warnCatalogue('background sync stopped', e);
   } finally {
     status().setIdle();
   }
