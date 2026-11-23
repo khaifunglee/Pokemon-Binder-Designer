@@ -5,6 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 import { useDbReady } from './src/db/hooks';
+import { OnboardingScreen } from './src/features/catalogue/OnboardingScreen';
 import { BinderListScreen } from './src/features/binders/BinderListScreen';
 import { BinderScreen } from './src/features/binders/BinderScreen';
 import { PickerCardsScreen } from './src/features/cards/PickerCardsScreen';
@@ -20,7 +21,7 @@ import type { RootStackParamList } from './src/navigation/types';
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function App() {
-  const { ready, error } = useDbReady();
+  const { ready, error, onboarded, finishOnboarding } = useDbReady();
 
   if (error) {
     return (
@@ -29,7 +30,8 @@ export default function App() {
       </View>
     );
   }
-  if (!ready) return <View style={styles.gate} />;
+  if (!ready || onboarded === null) return <View style={styles.gate} />;
+  if (!onboarded) return <OnboardingScreen onFinished={finishOnboarding} />;
 
   return (
     <GestureHandlerRootView style={styles.root}>
