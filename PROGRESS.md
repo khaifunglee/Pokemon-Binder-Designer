@@ -6,24 +6,39 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-23): roadmap step 1 (cleanup + quick fixes) is done and merged to `master` (PR #1). Next: roadmap step 2 (catalogue onboarding, D18); design doc in progress, no plan yet. Verdicts, decisions D1–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-23): roadmap step 2 (catalogue onboarding) code complete on branch `feat/step2-catalogue`; NEEDS SIMULATOR CHECK before PR. Step 1 merged (PR #1). Next after step 2: roadmap step 3 (local backup / restore). Verdicts, decisions D1–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
 
-## Next: roadmap step 2, catalogue onboarding (D18)
+## Roadmap step 2: catalogue onboarding (2026-11-23) — code complete, NEEDS SIMULATOR CHECK
 
-Scope (docs/idea.md roadmap step 2 + checklist fixes (a) and (b)):
-- GraphQL bulk sync (`/v2/graphql`, one query per set) behind a one-time
-  "Downloading card catalogue…" screen with progress; offline first
-  launch gets a message and a retry (today it shows an empty set picker
-  until the next cold start). New sets picked up by the same sync at app
-  start.
-- Store `illustrator` and `dex_ids` on cards.
-- Variants derived from TCGdex price keys as well as the variant flags
-  (Delta Reign `me06` has placeholder flags).
-- Placeholder card (name + number) when an image is missing (`me06`,
-  `30th-c`).
-- Keep every TCG Pocket guarantee from step 1 (lookup first, drop ids,
-  fail closed on unknown series, no sync if the lookup fails or is empty).
-- Prices stay on REST per card, template stats only (D19, step 6).
+Spec: docs/superpowers/specs/2026-11-23-step2-catalogue-onboarding-design.md. Plan:
+docs/superpowers/plans/2026-11-23-step2-catalogue-onboarding.md.
+- **Onboarding:** first launch shows a one-time "Downloading card database…" screen.
+  `ingestSets` (REST set list + Pocket lookup, unchanged guarantees) then one GraphQL
+  query per set, 4 at a time. Resumes after a kill; offline → Retry; some sets failed
+  → Retry / Continue anyway (they retry next start).
+- **Startup sync** (background): new/unsynced sets, a daily re-check (released in the
+  last 90 days or missing images; recent placeholder sets re-topped-up weekly; unpriced
+  cards re-checked weekly), then the variant top-up.
+- **Variants:** `cards.variants` = `mergeVariants(flags, price keys, manual, in-use)`.
+  The top-up reads REST TCGplayer price keys (incl. legacy `reverse`/`holo`) for the
+  44 placeholder-flag sets and discards prices (D19). Owned/placed variants are never
+  dropped. Long-press a checklist row → Add variant (stored in `manual_variants`, no
+  sync touches it); Remove is refused while owned or placed.
+- **Removed:** per-card REST from checklist, picker and import (`ensureSetCards`),
+  checklist prices, `mapCardDetail` / `mapCardBrief`. Stats keep REST prices via
+  `applyRestDetails(storePrices: true)`, which never rewrites card metadata.
+- **Placeholder:** `CardFace` shows name + #number when an image is missing or fails.
+- **Progress:** `useSyncStore` + `SyncStatusLine` (binder list, checklist sets,
+  checklist) and `[catalogue]` lines in the Metro log (dev; failures always warn).
+- **Migration 0005:** adds `illustrator`, `flag_variants`, `price_variants`,
+  `price_checked_at`, `manual_variants`, `placeholder_flags`, `variants_checked_at`;
+  clears every set's `cards_ingested_at` (re-download). No user data touched. Check:
+  `bash scripts/verify-migration-0005.sh <scratch-dir>`.
+- **Decisions taken in the plan:** set rows stay on REST (GraphQL sets have no
+  `abbreviation`, needed for CSV set codes); `cards_ingested_at` reused as the sync
+  marker; raw flags stored; recent placeholder sets re-topped-up weekly, not daily; no
+  monthly back-off for never-priced sets; GraphQL filter variable is `ID!`.
+- NEEDS SIMULATOR CHECK (spec Verification 1–10), then phone (starts onboarding there).
 
 ## Roadmap step 1: cleanup + quick fixes (2026-11-22) — DONE, merged 2026-11-23 (PR #1)
 

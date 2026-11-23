@@ -37,8 +37,12 @@ Product decisions and per-feature verdicts: `docs/idea.md` (concept review 2026-
 
 - Offline-first: every read/write hits local SQLite first. UI must NEVER block on network.
 - Card metadata (names, set, number, rarity, variants, dexId, illustrator) is synced
-  into SQLite once at onboarding, then new sets are picked up at app start. Images are
-  lazy-loaded and disk-cached (expo-file-system or expo-image cache).
+  into SQLite once at first-launch onboarding (GraphQL, one query per set, resumable),
+  then new sets are picked up at app start. A daily background re-check refreshes
+  recent (90-day) and image-less sets. Images are lazy-loaded and disk-cached (expo-image).
+- Variants = TCGdex flags + REST TCGplayer price keys (background top-up for the 44
+  placeholder-flag sets; unpriced cards re-checked weekly) + variants the user adds by
+  hand. `cards.variants` is always `mergeVariants(...)` of those; never infer variants.
 - Prices are fetched only when a template binder's stats are opened, for that binder's
   cards, with a 24h TTL. Checklists and collection binders make no price requests.
 - Heavy work (re-sorting, diffing, import parsing, colour extraction) runs off the UI thread.
@@ -59,13 +63,17 @@ Product decisions and per-feature verdicts: `docs/idea.md` (concept review 2026-
 - `pages`: id, binder_id, page_index
 - `slots`: id, page_id, slot_index, card_id (nullable = empty pocket), variant,
   quantity, condition (nullable)
-- `cards` (from TCGdex): id, name, set_id, number, rarity, supertype, types[], dex_ids[],
-  illustrator (nullable), image_small_uri, image_large_uri, variants[]
+- `cards` (from TCGdex): id, name, set_id, number, rarity, supertype, types[], dex_ids[]
+  (column `national_pokedex_numbers`), illustrator (nullable), image_small_uri,
+  image_large_uri, variants[] (merged), flag_variants[], price_variants[] (null = not
+  checked, [] = no TCGplayer data), price_checked_at, manual_variants[] (user-only)
+- `sets`: TCGdex set row + cards_ingested_at (GraphQL-synced), placeholder_flags,
+  variants_checked_at
 - `collection`: card_id, variant, quantity_owned (source of truth for "what I own").
   Template binders and checklists are both views over it.
-- `kind`, `template_scope`, `dex_ids` and `illustrator` are planned (roadmap steps 2 and 5).
-  The merged-slot columns were removed in roadmap step 1 (migration 0004). Until each planned
-  change lands, `src/db/schema.ts` is the truth.
+- `kind` and `template_scope` are planned (roadmap step 5). `illustrator` and the variant
+  columns landed in step 2 (migration 0005); the merged-slot columns were removed in step 1
+  (migration 0004). Until each planned change lands, `src/db/schema.ts` is the truth.
 
 ## UX quality bars (measurable, non-negotiable)
 

@@ -151,6 +151,8 @@ The per-set **checklist** screen and a set template binder are two views of the 
   - **New sets** are picked up by the same sync at app start.
   - **Images** stay lazy (expo-image disk cache).
   - **Why not the current approach:** fetching card details one at a time over REST would take about 67 minutes for the whole catalogue.
+  - **Variants (2026-11-23, built in step 2):** 44 sets (4,396 cards, every main XY and most Sun & Moon sets) have normal-only placeholder flags, but REST TCGplayer price keys list the real variants. **User choice B:** a one-time background top-up reads them after onboarding. About 24% of flagged-set cards have no TCGplayer prices at all (promos like `xyp`, `mfb`, plus ~6% scattered in main sets). **User choice 1 + 3:** keep the flags and re-check those cards weekly (nothing is inferred), and let the user add a missing variant by hand from the checklist.
+  - **Freshness:** a daily background re-check re-syncs sets released in the last 90 days or still missing images, since new sets (e.g. Delta Reign) arrive half-finished.
 - **D19. Prices only where they're shown.**
   - GraphQL has no pricing, so prices still use REST per card with the 24h TTL.
   - Fetch them **only when a template binder's stats are opened**, for that binder's cards.
