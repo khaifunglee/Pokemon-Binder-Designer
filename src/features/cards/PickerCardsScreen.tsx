@@ -39,7 +39,7 @@ export function PickerCardsScreen({ route, navigation }: Props) {
       setCards(rows);
       setLoading(false);
       if (rows.length === 0) {
-        setError('This set needs to be downloaded once — connect to the internet and retry.');
+        setError("This set hasn't downloaded yet. It will retry next time the app starts.");
       }
     })();
     return () => {

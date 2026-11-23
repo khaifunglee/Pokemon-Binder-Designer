@@ -71,7 +71,7 @@ export async function resolveImport(
       if (cardRefs.length === 0) {
         problems.push({
           line: row.line,
-          detail: `set "${setId}" not downloaded — connect to the internet and retry`,
+          detail: `set not downloaded yet: ${allSets.find((s) => s.id === setId)?.name ?? setId}`,
         });
         continue;
       }

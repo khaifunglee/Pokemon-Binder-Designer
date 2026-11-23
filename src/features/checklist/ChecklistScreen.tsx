@@ -14,6 +14,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -24,11 +25,10 @@ import {
 import { db } from '../../db/client';
 import { adjustOwnedQuantity, toggleOwned } from '../../db/collectionService';
 import { resyncSet } from '../../db/catalogueSync';
-import { getDisplayCurrency, getRate } from '../../db/ratesService';
-import { cardPrices, cards, collection, sets } from '../../db/schema';
+import { cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
-import { convertUsd, formatCurrency } from '../../lib/currency';
 import type { RootStackParamList } from '../../navigation/types';
+import { SyncStatusLine } from '../catalogue/SyncStatusLine';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 import { variantLabel } from '../cards/variantLabels';
 
@@ -45,7 +45,6 @@ interface RowProps {
   variant: string;
   /** Owned quantity; undefined = not owned. */
   quantity: number | undefined;
-  priceLabel: string | null;
   onToggle: (cardId: string, variant: string) => void;
   onAdjust: (cardId: string, variant: string, delta: number) => void;
 }
@@ -55,7 +54,6 @@ const ChecklistRow = memo(function ChecklistRow({
   card,
   variant,
   quantity,
-  priceLabel,
   onToggle,
   onAdjust,
 }: RowProps) {
@@ -80,7 +78,6 @@ const ChecklistRow = memo(function ChecklistRow({
           {card.rarity ? ` · ${card.rarity}` : ''}
         </Text>
       </View>
-      {priceLabel !== null && <Text style={styles.price}>{priceLabel}</Text>}
       {owned ? (
         <View style={styles.qtyControls}>
           <Pressable hitSlop={8} onPress={() => onAdjust(card.id, variant, -1)}>
@@ -105,47 +102,9 @@ const ChecklistRow = memo(function ChecklistRow({
  */
 export function ChecklistScreen({ route, navigation }: Props) {
   const { setId } = route.params;
-  const [downloading, setDownloading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   /** key → optimistic quantity (null = not owned); cleared on DB echo. */
   const [overrides, setOverrides] = useState<Map<string, number | null>>(new Map());
-  const [priceLabels, setPriceLabels] = useState<Map<string, string>>(new Map());
-
-  // Cards are local since onboarding; nothing to download on open.
-  useEffect(() => setDownloading(false), [setId]);
-
-  // Prices in the display currency; loaded once per visit (prices only
-  // change on TTL refresh, not while tapping through a checklist).
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const [rows, currency] = await Promise.all([
-        db
-          .select({
-            cardId: cardPrices.cardId,
-            variant: cardPrices.variant,
-            marketUsd: cardPrices.marketUsd,
-          })
-          .from(cardPrices)
-          .innerJoin(cards, eq(cardPrices.cardId, cards.id))
-          .where(eq(cards.setId, setId)),
-        getDisplayCurrency(db),
-      ]);
-      const rate = (await getRate(db, currency)) ?? 1;
-      if (cancelled) return;
-      setPriceLabels(
-        new Map(
-          rows.map((r) => [
-            `${r.cardId}::${r.variant}`,
-            formatCurrency(convertUsd(r.marketUsd, rate), currency),
-          ]),
-        ),
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [setId, downloading, refreshing]);
 
   const { data: setRows } = useLiveQuery(
     db.select().from(sets).where(eq(sets.id, setId)),
@@ -286,7 +245,9 @@ export function ChecklistScreen({ route, navigation }: Props) {
             onPress={() => {
               setRefreshing(true);
               void resyncSet(db, setId)
-                .catch(() => {})
+                .catch((e: unknown) =>
+                  Alert.alert('Re-sync failed', e instanceof Error ? e.message : String(e)),
+                )
                 .finally(() => setRefreshing(false));
             }}
           >
@@ -299,28 +260,23 @@ export function ChecklistScreen({ route, navigation }: Props) {
     });
   }, [navigation, setRows, ownedCount, entries.length, refreshing, setId]);
 
-  if (downloading && entries.length === 0) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator />
-        <Text style={styles.hint}>Downloading set…</Text>
-      </View>
-    );
-  }
   if (entries.length === 0) {
     return (
       <View style={styles.center}>
+        {refreshing && <ActivityIndicator />}
         <Text style={styles.hint}>
-          This set needs to be downloaded once — connect to the internet and retry.
+          This set hasn&apos;t downloaded yet. It will retry next time the app starts.
         </Text>
       </View>
     );
   }
 
   return (
-    <FlatList
-      style={styles.list}
-      data={entries}
+    <View style={styles.screen}>
+      <SyncStatusLine />
+      <FlatList
+        style={styles.list}
+        data={entries}
       keyExtractor={(e) => `${e.card.id}::${e.variant}`}
       renderItem={({ item }) => {
         const key = `${item.card.id}::${item.variant}`;
@@ -329,17 +285,18 @@ export function ChecklistScreen({ route, navigation }: Props) {
             card={item.card}
             variant={item.variant}
             quantity={quantityFor(key)}
-            priceLabel={priceLabels.get(key) ?? null}
             onToggle={onToggle}
             onAdjust={onAdjust}
           />
         );
       }}
-    />
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#fff' },
   list: { backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   hint: { color: '#999', textAlign: 'center' },
@@ -359,7 +316,6 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 14, fontWeight: '500' },
   rowSub: { fontSize: 12, color: '#999' },
-  price: { fontSize: 12, color: '#78909c', fontVariant: ['tabular-nums'] },
   checkbox: {
     width: 22,
     height: 22,
