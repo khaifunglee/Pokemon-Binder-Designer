@@ -510,10 +510,8 @@ paid) deliberately not pursued in MVP; user informed.
   roadmap step 4 (D6).
 - Import + variant stacking stacks only within the import batch, not onto
   pockets already in the binder; D7 fixes this in step 4.
-- Undecided: sets with no release date sort first in master-set (a test
-  pins it); should they go last?
-- `planFromSequence` drops cards silently if the binder lacks room
-  (callers add pages first today); consider a guard in step 7.
+- Settled 2026-11-23: sets with no release date sort last in master-set;
+  `planFromSequence` needs no guard (callers always add pages first).
 - `pagesRef`/`currentPageRef` assume the page list doesn't shrink
   mid-drag; revisit when page deletion (D4) lands in step 7.
 - `app.json` bundle id is still `com.anonymous.pokebinder`; change before

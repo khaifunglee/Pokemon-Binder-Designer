@@ -75,10 +75,17 @@ export function compareCollectorNumbers(a: string, b: string): number {
   return pa.suffix < pb.suffix ? -1 : pa.suffix > pb.suffix ? 1 : 0;
 }
 
-/** Release date, then set id, then collector number — the master-set order. */
+/**
+ * Release date, then set id, then collector number — the master-set order.
+ * Sets with no release date ('' when TCGdex omits it) go after every dated
+ * set (user decision 2026-11-23), not first as a plain string compare would.
+ */
 export function compareMasterSet(a: SortableEntry, b: SortableEntry): number {
-  if (a.setReleaseDate !== b.setReleaseDate)
+  if (a.setReleaseDate !== b.setReleaseDate) {
+    if (a.setReleaseDate === '') return 1;
+    if (b.setReleaseDate === '') return -1;
     return a.setReleaseDate < b.setReleaseDate ? -1 : 1;
+  }
   if (a.setId !== b.setId) return a.setId < b.setId ? -1 : 1;
   return compareCollectorNumbers(a.number, b.number);
 }

@@ -1,4 +1,4 @@
-import { rarityBucket, sortEntries } from '../sort';
+import { compareMasterSet, rarityBucket, sortEntries } from '../sort';
 import type { SortableEntry } from '../sort';
 
 function entry(partial: Partial<SortableEntry> & { slotId: string }): SortableEntry {
@@ -20,6 +20,13 @@ const order = (entries: SortableEntry[], strategy: Parameters<typeof sortEntries
   sortEntries(entries, strategy).map((e) => e.slotId);
 
 describe('master-set', () => {
+  it('puts sets with no release date after every dated set', () => {
+    const undated = entry({ slotId: 'undated', setReleaseDate: '', setId: 'promo' });
+    const dated = entry({ slotId: 'dated', setReleaseDate: '2026/11/06', setId: 'me06' });
+    expect(compareMasterSet(undated, dated)).toBeGreaterThan(0);
+    expect(compareMasterSet(dated, undated)).toBeLessThan(0);
+  });
+
   it('orders by release date, set, then collector number (numeric-aware)', () => {
     const entries = [
       entry({ slotId: 'newSet', setReleaseDate: '2023/08/11', setId: 'sv3', number: '1' }),

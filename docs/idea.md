@@ -238,10 +238,9 @@ Each step gets its own plan → approval → tested commits.
 
 ### Deferred minors (low risk, from reviews)
 
-From roadmap step 1:
-- Sets with no release date sort first in master-set (a test pins it). Decide: first or last?
-- `planFromSequence` drops cards silently if the binder lacks room (callers add pages first
-  today). Add a guard when organize is reworked in step 7.
+From roadmap step 1 (both settled 2026-11-23: undated sets now sort **last** in
+master-set; `planFromSequence` can't run out of room because callers always add pages
+first, so no guard):
 - Older services use `db.transaction(async …)`, which drizzle's expo-sqlite driver commits
   before the awaited queries run, so their multi-step writes aren't atomic: `binders`,
   `organize`, `slots`, `collectionService`, `importService`, `stackingService`,
