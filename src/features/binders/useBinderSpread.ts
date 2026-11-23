@@ -11,6 +11,7 @@ export interface PocketVM {
   imageSmallUri: string | null;
   imageLargeUri: string | null;
   cardName: string | null;
+  cardNumber: string | null;
 }
 
 export interface PageVM {
@@ -38,6 +39,7 @@ export function useBinderSpread(binderId: string): {
         imageSmallUri: cards.imageSmallUri,
         imageLargeUri: cards.imageLargeUri,
         cardName: cards.name,
+        cardNumber: cards.number,
       })
       .from(slots)
       .innerJoin(pages, eq(slots.pageId, pages.id))
@@ -60,6 +62,7 @@ export function useBinderSpread(binderId: string): {
         imageSmallUri: row.imageSmallUri,
         imageLargeUri: row.imageLargeUri,
         cardName: row.cardName,
+        cardNumber: row.cardNumber,
       });
     }
     return [...byPage.values()].sort((a, b) => a.pageIndex - b.pageIndex);

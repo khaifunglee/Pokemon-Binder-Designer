@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { StyleSheet, Pressable, Text, View } from 'react-native';
 import Animated, { withSpring, withTiming } from 'react-native-reanimated';
 import type { EntryAnimationsValues } from 'react-native-reanimated';
@@ -6,7 +5,7 @@ import type { EntryAnimationsValues } from 'react-native-reanimated';
 import type { BinderLayout } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
 import { useUiStore } from '../../state/uiStore';
-import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { CardFace } from '../cards/CardFace';
 import type { PocketVM } from './useBinderSpread';
 
 export const CARD_ASPECT = 63 / 88; // physical card width/height
@@ -66,13 +65,13 @@ function PocketFace({
   if (pocket.slot.cardId !== null && !hidden) {
     const face = (
       <>
-        <Image
-          source={{ uri: pocket.imageSmallUri ?? pocket.imageLargeUri ?? undefined }}
+        <CardFace
+          name={pocket.cardName}
+          number={pocket.cardNumber}
+          imageUri={pocket.imageSmallUri ?? pocket.imageLargeUri}
           style={styles.cardImage}
           contentFit="cover"
-          cachePolicy={CARD_IMAGE_CACHE_POLICY}
           transition={100}
-          accessibilityLabel={pocket.cardName ?? 'card'}
         />
         {pocket.slot.quantity > 1 && (
           <View style={styles.qtyBadge}>

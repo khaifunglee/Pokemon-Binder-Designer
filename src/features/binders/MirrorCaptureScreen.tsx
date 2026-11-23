@@ -1,6 +1,5 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import * as Haptics from 'expo-haptics';
-import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import {
   Alert,
@@ -21,7 +20,7 @@ import { clearSlot, placeCard } from '../../db/slots';
 import { layoutSpec } from '../../lib/binder/layout';
 import { likePattern } from '../../lib/search';
 import type { RootStackParamList } from '../../navigation/types';
-import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { CardFace } from '../cards/CardFace';
 import { variantLabel } from '../cards/variantLabels';
 import { CARD_ASPECT, PageGrid } from './PageGrid';
 import { useBinderSpread } from './useBinderSpread';
@@ -186,8 +185,7 @@ export function MirrorCaptureScreen({ route, navigation }: Props) {
         ListEmptyComponent={
           searching ? (
             <Text style={styles.hint}>
-              No matches in downloaded sets — browse the set once via a
-              checklist to download it.
+              No matching cards.
             </Text>
           ) : null
         }
@@ -197,11 +195,12 @@ export function MirrorCaptureScreen({ route, navigation }: Props) {
             onPress={() => pick(item)}
             onLongPress={() => pickVariant(item)}
           >
-            <Image
-              source={{ uri: item.imageSmallUri ?? undefined }}
+            <CardFace
+              name={item.name}
+              number={item.number}
+              imageUri={item.imageSmallUri ?? item.imageLargeUri}
               style={styles.thumb}
               contentFit="contain"
-              cachePolicy={CARD_IMAGE_CACHE_POLICY}
             />
             <View style={styles.resultText}>
               <Text style={styles.resultTitle}>{item.name}</Text>

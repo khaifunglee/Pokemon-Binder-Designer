@@ -2,7 +2,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asc, eq, sql } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Haptics from 'expo-haptics';
-import { Image } from 'expo-image';
 import {
   memo,
   useCallback,
@@ -29,7 +28,7 @@ import { cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
 import type { RootStackParamList } from '../../navigation/types';
 import { SyncStatusLine } from '../catalogue/SyncStatusLine';
-import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { CardFace } from '../cards/CardFace';
 import { variantLabel } from '../cards/variantLabels';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checklist'>;
@@ -63,11 +62,12 @@ const ChecklistRow = memo(function ChecklistRow({
       style={[styles.row, owned && styles.rowOwned]}
       onPress={() => onToggle(card.id, variant)}
     >
-      <Image
-        source={{ uri: card.imageSmallUri ?? undefined }}
+      <CardFace
+        name={card.name}
+        number={card.number}
+        imageUri={card.imageSmallUri ?? card.imageLargeUri}
         style={styles.thumb}
         contentFit="contain"
-        cachePolicy={CARD_IMAGE_CACHE_POLICY}
       />
       <View style={styles.rowText}>
         <Text style={styles.rowTitle} numberOfLines={1}>
