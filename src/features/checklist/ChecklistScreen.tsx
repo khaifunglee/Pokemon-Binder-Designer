@@ -31,7 +31,9 @@ import {
   removeManualVariant,
   VariantInUseError,
 } from '../../db/variantService';
+import { isIncompleteSet } from '../../lib/tcgdex/syncPlan';
 import { addableVariants } from '../../lib/tcgdex/variants';
+import { useSetBusy } from '../../state/syncStore';
 import type { RootStackParamList } from '../../navigation/types';
 import { SyncStatusLine } from '../catalogue/SyncStatusLine';
 import { OptionSheet } from './OptionSheet';
@@ -114,7 +116,8 @@ const ChecklistRow = memo(function ChecklistRow({
  */
 export function ChecklistScreen({ route, navigation }: Props) {
   const { setId } = route.params;
-  const [refreshing, setRefreshing] = useState(false);
+  /** Being downloaded or topped up, by ↻ or the background sync. */
+  const busy = useSetBusy(setId);
   /** key → optimistic quantity (null = not owned); cleared on DB echo. */
   const [overrides, setOverrides] = useState<Map<string, number | null>>(new Map());
 
@@ -122,7 +125,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
     db.select().from(sets).where(eq(sets.id, setId)),
     [setId],
   );
-  const { data: cardRows } = useLiveQuery(
+  const { data: cardRows, updatedAt: cardsLoadedAt } = useLiveQuery(
     db
       .select()
       .from(cards)
@@ -287,40 +290,66 @@ export function ChecklistScreen({ route, navigation }: Props) {
           )}
           <Pressable
             hitSlop={10}
-            disabled={refreshing}
-            // Re-download the set's card data (variants, images, prices).
+            disabled={busy}
+            accessibilityLabel={busy ? 'Syncing this set' : 'Re-sync this set'}
+            // Re-download the set's cards (plus the variant top-up if needed).
             onPress={() => {
-              setRefreshing(true);
-              void resyncSet(db, setId)
-                .catch((e: unknown) =>
-                  Alert.alert('Re-sync failed', e instanceof Error ? e.message : String(e)),
-                )
-                .finally(() => setRefreshing(false));
+              void resyncSet(db, setId).catch((e: unknown) =>
+                Alert.alert('Re-sync failed', e instanceof Error ? e.message : String(e)),
+              );
             }}
           >
-            <Text style={[styles.headerRefresh, refreshing && styles.headerRefreshOff]}>
+            <Text style={[styles.headerRefresh, busy && styles.headerRefreshOff]}>
               ↻
             </Text>
           </Pressable>
         </View>
       ),
     });
-  }, [navigation, setRows, ownedCount, entries.length, refreshing, setId]);
+  }, [navigation, setRows, ownedCount, entries.length, busy, setId]);
 
+  // Wait for the first read, so an already-downloaded set doesn't flash
+  // the "not downloaded" message.
+  if (cardsLoadedAt === undefined) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator />
+      </View>
+    );
+  }
   if (entries.length === 0) {
     return (
       <View style={styles.center}>
-        {refreshing && <ActivityIndicator />}
+        {busy && <ActivityIndicator />}
         <Text style={styles.hint}>
-          This set hasn&apos;t downloaded yet. It will retry next time the app starts.
+          {busy
+            ? 'Syncing this set in the background…'
+            : "This set hasn't downloaded yet. It will retry next time the app starts."}
         </Text>
       </View>
     );
   }
 
+  const listedTotal = setRows?.[0]?.total ?? 0;
+  const cardCount = cardRows?.length ?? 0;
+
   return (
     <View style={styles.screen}>
       <SyncStatusLine />
+      {busy && (
+        <View style={styles.notice}>
+          <ActivityIndicator size="small" />
+          <Text style={styles.noticeText}>Syncing this set in the background…</Text>
+        </View>
+      )}
+      {isIncompleteSet(cardCount, listedTotal) && (
+        <View style={styles.notice}>
+          <Text style={styles.noticeText}>
+            TCGdex lists {cardCount} of {listedTotal} cards so far. The rest will appear when
+            TCGdex adds them.
+          </Text>
+        </View>
+      )}
       <FlatList
         style={styles.list}
         data={entries}
@@ -346,6 +375,15 @@ export function ChecklistScreen({ route, navigation }: Props) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: '#fff' },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: '#fff8e1',
+  },
+  noticeText: { flex: 1, fontSize: 12, color: '#6d5d00' },
   list: { backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   hint: { color: '#999', textAlign: 'center' },

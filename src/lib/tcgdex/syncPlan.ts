@@ -22,9 +22,13 @@ export function setsToSync(
   return sets.filter((s) => s.cardsIngestedAt == null && s.total > 0).map((s) => s.id);
 }
 
-/** An empty answer for a set that should have cards is an upstream hiccup. */
-export function isPlausibleSetPayload(cardCount: number, expectedTotal: number): boolean {
-  return !(cardCount === 0 && expectedTotal > 0);
+/**
+ * Fewer cards on the device than TCGdex's cardCount.total: the set is
+ * stored anyway (4 sets have no cards anywhere in TCGdex, and 2 only some)
+ * and re-checked daily until TCGdex fills it in.
+ */
+export function isIncompleteSet(localCards: number, total: number): boolean {
+  return localCards < total;
 }
 
 export function isDue(lastRunIso: string | null, now: Date, intervalMs: number): boolean {
@@ -47,13 +51,23 @@ export function isRecent(
   return age >= -DAY_MS && age <= windowDays * DAY_MS;
 }
 
+export interface RecheckCandidate {
+  id: string;
+  releaseDate: string;
+  missingImages: number;
+  localCards: number;
+  total: number;
+}
+
 /** New sets arrive half-finished; TCGdex fills them in over weeks. */
-export function setsToRecheck(
-  sets: { id: string; releaseDate: string; missingImages: number }[],
-  now: Date,
-): string[] {
+export function setsToRecheck(sets: RecheckCandidate[], now: Date): string[] {
   return sets
-    .filter((s) => isRecent(s.releaseDate, now) || s.missingImages > 0)
+    .filter(
+      (s) =>
+        isRecent(s.releaseDate, now) ||
+        s.missingImages > 0 ||
+        isIncompleteSet(s.localCards, s.total),
+    )
     .map((s) => s.id);
 }
 
@@ -62,10 +76,7 @@ export function setsToRecheck(
  * again: the re-checked ones, plus sets first seen with no cards, which
  * otherwise never sync or re-check.
  */
-export function setsToRefreshMetadata(
-  sets: { id: string; releaseDate: string; missingImages: number; total: number }[],
-  now: Date,
-): string[] {
+export function setsToRefreshMetadata(sets: RecheckCandidate[], now: Date): string[] {
   const recheck = new Set(setsToRecheck(sets, now));
   return sets.filter((s) => recheck.has(s.id) || s.total === 0).map((s) => s.id);
 }

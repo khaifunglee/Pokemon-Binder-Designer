@@ -1,4 +1,4 @@
-import { count, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { count, eq, inArray, sql } from 'drizzle-orm';
 
 import { logCatalogue, warnCatalogue } from '../lib/catalogueLog';
 import { fetchCardDetailsSettled, pooledSettled } from '../lib/tcgdex/api';
@@ -7,7 +7,7 @@ import { mapGraphqlCard } from '../lib/tcgdex/mappers';
 import {
   cardsDuePriceRecheck,
   isDue,
-  isPlausibleSetPayload,
+  isIncompleteSet,
   RECHECK_INTERVAL_MS,
   setsNeedingTopUp,
   setsToRecheck,
@@ -16,7 +16,7 @@ import {
   topUpsToReopen,
 } from '../lib/tcgdex/syncPlan';
 import { isPlaceholderFlagSet, mergeVariants } from '../lib/tcgdex/variants';
-import { createThrottle } from '../lib/throttle';
+import { createFailureStreak, createThrottle } from '../lib/throttle';
 import { useSyncStore } from '../state/syncStore';
 import {
   CATALOGUE_ONBOARDED_KEY,
@@ -45,6 +45,26 @@ const PROGRESS_INTERVAL_MS = 250;
 
 const status = () => useSyncStore.getState();
 
+/** Consecutive network failures before the rest of a batch is skipped. */
+const NETWORK_FAILURE_LIMIT = 3;
+/** Pause before onboarding retries the sets that failed. */
+const RETRY_DELAY_MS = 3000;
+
+/** RN reports a lost connection as TypeError, a timeout as AbortError. */
+export const isNetworkError = (e: unknown): boolean =>
+  e instanceof TypeError ||
+  (e instanceof Error && (e.name === 'AbortError' || /aborted|network request failed/i.test(e.message)));
+
+/** Marks the set busy for the checklist while `work` runs. */
+async function whileBusy<T>(setId: string, work: () => Promise<T>): Promise<T> {
+  status().markBusy(setId);
+  try {
+    return await work();
+  } finally {
+    status().markDone(setId);
+  }
+}
+
 async function loadSetRows(db: Db) {
   return db
     .select({
@@ -64,7 +84,14 @@ async function loadSetRows(db: Db) {
  * transaction, re-merging stored price/manual/in-use variants so a
  * re-sync never undoes the top-up or the user's own variants.
  */
-export async function syncSetCards(
+export function syncSetCards(
+  db: Db,
+  setId: string,
+): Promise<{ cards: number; placeholderFlags: boolean }> {
+  return whileBusy(setId, () => syncSetCardsNow(db, setId));
+}
+
+async function syncSetCardsNow(
   db: Db,
   setId: string,
 ): Promise<{ cards: number; placeholderFlags: boolean }> {
@@ -75,9 +102,6 @@ export async function syncSetCards(
   if (!setRow) throw new Error(`set ${setId} is not in the catalogue`);
 
   const { cards: payload, dropped } = await fetchSetCards(setId);
-  if (!isPlausibleSetPayload(payload.length, setRow.total)) {
-    throw new Error(`set ${setId} returned no cards`);
-  }
   const rows = payload.map(mapGraphqlCard);
   const placeholderFlags = isPlaceholderFlagSet(rows.map((r) => r.flagVariants));
   const now = new Date();
@@ -132,30 +156,53 @@ export async function syncSetCards(
   });
 
   logCatalogue(`synced ${setId} (${rows.length} cards)`);
+  // Kept as synced: the daily re-check picks incomplete sets up again.
+  if (isIncompleteSet(rows.length, setRow.total)) {
+    logCatalogue(`${setId}: TCGdex lists ${rows.length} of ${setRow.total} cards`);
+  }
   if (dropped > 0) logCatalogue(`${setId}: dropped ${dropped} malformed cards`);
   return { cards: rows.length, placeholderFlags };
 }
 
-/** Sync many sets, 4 at a time; failures are returned, not thrown. */
+/**
+ * Sync many sets, 4 at a time; failures are returned, not thrown. After
+ * 3 network failures in a row the rest are skipped rather than each
+ * waiting for its own timeout (`connectionLost`).
+ */
 async function syncSets(
   db: Db,
   setIds: string[],
   onProgress?: (done: number, total: number) => void,
-): Promise<string[]> {
+): Promise<{ failed: string[]; connectionLost: boolean }> {
+  const streak = createFailureStreak(NETWORK_FAILURE_LIMIT);
   const results = await pooledSettled(
     setIds,
-    (id) => syncSetCards(db, id),
+    async (id) => {
+      if (streak.tripped()) throw new Error('skipped: connection lost');
+      try {
+        const result = await syncSetCards(db, id);
+        streak.succeed();
+        return result;
+      } catch (e) {
+        if (isNetworkError(e)) streak.fail();
+        throw e;
+      }
+    },
     GRAPHQL_CONCURRENCY,
     onProgress,
   );
   const failed: string[] = [];
   results.forEach((r, i) => {
-    if (r.status === 'rejected') {
-      failed.push(setIds[i]);
-      warnCatalogue(`sync failed for ${setIds[i]}`, r.reason);
-    }
+    if (r.status === 'rejected') failed.push(setIds[i]);
   });
-  return failed;
+  if (streak.tripped()) {
+    warnCatalogue(`connection lost; ${failed.length} sets left: ${failed.join(', ')}`);
+  } else {
+    results.forEach((r, i) => {
+      if (r.status === 'rejected') warnCatalogue(`sync failed for ${setIds[i]}`, r.reason);
+    });
+  }
+  return { failed, connectionLost: streak.tripped() };
 }
 
 /**
@@ -165,7 +212,11 @@ async function syncSets(
  * applied, and the set is marked checked only when none failed, so a
  * retry re-fetches just the failures.
  */
-export async function topUpSet(db: Db, setId: string): Promise<void> {
+export function topUpSet(db: Db, setId: string): Promise<void> {
+  return whileBusy(setId, () => topUpSetNow(db, setId));
+}
+
+async function topUpSetNow(db: Db, setId: string): Promise<void> {
   const before = await db
     .select({ id: cards.id, variants: cards.variants, prices: cards.priceVariants })
     .from(cards)
@@ -203,9 +254,6 @@ export async function topUpSet(db: Db, setId: string): Promise<void> {
   }
 }
 
-const isNetworkError = (e: unknown): boolean =>
-  e instanceof TypeError || (e instanceof Error && e.name === 'AbortError');
-
 /** Background: top up every placeholder-flag set not checked yet. */
 export async function runVariantTopUp(db: Db): Promise<void> {
   const setRows = await loadSetRows(db);
@@ -234,16 +282,35 @@ export async function isOnboarded(db: Db): Promise<boolean> {
 }
 
 export async function markOnboarded(db: Db): Promise<void> {
-  await setSetting(db, CATALOGUE_ONBOARDED_KEY, new Date().toISOString());
+  const now = new Date().toISOString();
+  await setSetting(db, CATALOGUE_ONBOARDED_KEY, now);
+  // Onboarding just downloaded every set: no daily re-check needed today.
+  await setSetting(db, CATALOGUE_RECHECKED_KEY, now);
+}
+
+/** Sets whose cards are on the device, for "Continue with N sets". */
+export async function countSyncedSets(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(sets)
+    .where(sql`${sets.cardsIngestedAt} IS NOT NULL`);
+  return row?.n ?? 0;
+}
+
+export interface OnboardingResult {
+  failedSetIds: string[];
+  /** The connection dropped mid-way; the rest were skipped, not tried. */
+  connectionLost: boolean;
 }
 
 /**
  * First launch: set list (with the Pocket lookup), then every set's
  * cards. Throws when the set list can't be fetched (offline); individual
  * set failures are returned so the user can retry or continue. Resumes:
- * sets already synced are skipped.
+ * sets already synced are skipped. Failed sets get one automatic retry
+ * after a short pause, unless the connection was lost.
  */
-export async function runOnboarding(db: Db): Promise<{ failedSetIds: string[] }> {
+export async function runOnboarding(db: Db): Promise<OnboardingResult> {
   status().setStatus({
     phase: 'onboarding',
     message: 'Downloading one-time card database…',
@@ -275,19 +342,28 @@ export async function runOnboarding(db: Db): Promise<{ failedSetIds: string[] }>
     logCatalogue(`onboarding ${done}/${total} sets`);
   };
   report(0, toSync.length);
-  const failedSetIds = await syncSets(db, toSync, report);
-  status().setStatus({ failedSetIds });
-  if (failedSetIds.length === 0) await markOnboarded(db);
-  return { failedSetIds };
+  let { failed, connectionLost } = await syncSets(db, toSync, report);
+  if (failed.length > 0 && !connectionLost) {
+    logCatalogue(`retrying ${failed.length} sets`);
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+    ({ failed, connectionLost } = await syncSets(db, failed));
+  }
+  status().setStatus({ failedSetIds: failed });
+  if (failed.length === 0) await markOnboarded(db);
+  return { failedSetIds: failed, connectionLost };
 }
 
-async function missingImageCounts(db: Db): Promise<Map<string, number>> {
+/** Per set: cards on the device, and how many of them lack an image. */
+async function cardCounts(db: Db): Promise<Map<string, { local: number; missing: number }>> {
   const rows = await db
-    .select({ setId: cards.setId, n: count() })
+    .select({
+      setId: cards.setId,
+      local: count(),
+      missing: sql<number>`sum(${cards.imageSmallUri} IS NULL)`,
+    })
     .from(cards)
-    .where(isNull(cards.imageSmallUri))
     .groupBy(cards.setId);
-  return new Map(rows.map((r) => [r.setId, r.n]));
+  return new Map(rows.map((r) => [r.setId, { local: r.local, missing: Number(r.missing ?? 0) }]));
 }
 
 /**
@@ -298,12 +374,13 @@ async function missingImageCounts(db: Db): Promise<Map<string, number>> {
 async function runDailyRecheck(db: Db, now: Date): Promise<void> {
   let clean = true;
   const setRows = await loadSetRows(db);
-  const missing = await missingImageCounts(db);
+  const counts = await cardCounts(db);
   const withImages = setRows.map((s) => ({
     id: s.id,
     releaseDate: s.releaseDate,
     total: s.total,
-    missingImages: missing.get(s.id) ?? 0,
+    localCards: counts.get(s.id)?.local ?? 0,
+    missingImages: counts.get(s.id)?.missing ?? 0,
   }));
 
   // Set rows first: a new set's total and release date fill in over weeks.
@@ -314,8 +391,8 @@ async function runDailyRecheck(db: Db, now: Date): Promise<void> {
   }
 
   const recheck = setsToRecheck(withImages, now);
-  logCatalogue(`re-check: ${recheck.length} sets (recent or missing images)`);
-  if ((await syncSets(db, recheck)).length > 0) clean = false;
+  logCatalogue(`re-check: ${recheck.length} sets (recent, incomplete or missing images)`);
+  if ((await syncSets(db, recheck)).failed.length > 0) clean = false;
 
   const reopen = topUpsToReopen(setRows, now);
   if (reopen.length > 0) {
@@ -376,17 +453,18 @@ export async function runStartupSync(db: Db, now: Date = new Date()): Promise<vo
   }
 }
 
-/** Checklist ↻: re-download one set, plus its top-up when needed. */
+/**
+ * Checklist ↻: re-download one set, plus its top-up when needed. No-op
+ * while a background sync already has the set (the button is greyed out).
+ */
 export async function resyncSet(db: Db, setId: string): Promise<void> {
-  status().setStatus({
-    phase: 'resync',
-    message: 'Downloading per-card details for this set…',
-  });
+  if (status().busySetIds.includes(setId)) return;
   logCatalogue(`resync ${setId} (manual)`);
-  try {
-    const result = await syncSetCards(db, setId);
-    if (result.placeholderFlags) await topUpSet(db, setId);
-  } finally {
-    status().setIdle();
-  }
+  // The checklist shows this through busySetIds, not the shared status
+  // line, so a manual re-sync and the background sync can't clear each
+  // other's message.
+  await whileBusy(setId, async () => {
+    const result = await syncSetCardsNow(db, setId);
+    if (result.placeholderFlags) await topUpSetNow(db, setId);
+  });
 }

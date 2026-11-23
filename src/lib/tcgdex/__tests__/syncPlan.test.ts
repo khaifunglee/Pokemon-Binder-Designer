@@ -2,7 +2,7 @@ import {
   cardsDuePriceRecheck,
   DAY_MS,
   isDue,
-  isPlausibleSetPayload,
+  isIncompleteSet,
   isRecent,
   setsNeedingTopUp,
   setsToRecheck,
@@ -27,15 +27,16 @@ describe('setsToSync', () => {
   });
 });
 
-describe('isPlausibleSetPayload', () => {
-  it('rejects an empty payload for a set that should have cards', () => {
-    expect(isPlausibleSetPayload(0, 141)).toBe(false);
+describe('isIncompleteSet', () => {
+  it('is incomplete when fewer cards arrived than TCGdex lists', () => {
+    expect(isIncompleteSet(34, 48)).toBe(true);
+    expect(isIncompleteSet(0, 160)).toBe(true);
   });
 
-  it('accepts empty sets and partial payloads', () => {
-    expect(isPlausibleSetPayload(0, 0)).toBe(true);
-    expect(isPlausibleSetPayload(141, 141)).toBe(true);
-    expect(isPlausibleSetPayload(120, 141)).toBe(true);
+  it('is complete at or above the listed total', () => {
+    expect(isIncompleteSet(258, 258)).toBe(false);
+    expect(isIncompleteSet(0, 0)).toBe(false);
+    expect(isIncompleteSet(300, 258)).toBe(false);
   });
 });
 
@@ -68,14 +69,16 @@ describe('setsToRecheck', () => {
     expect(
       setsToRecheck(
         [
-          { id: 'me06', releaseDate: '2026-11-06', missingImages: 141 },
-          { id: 'sm3.5', releaseDate: '2017-10-06', missingImages: 78 },
-          { id: 'sv01', releaseDate: '2023-03-31', missingImages: 0 },
-          { id: 'undated', releaseDate: '', missingImages: 0 },
+          { id: 'me06', releaseDate: '2026-11-06', missingImages: 141, localCards: 141, total: 141 },
+          { id: 'sm3.5', releaseDate: '2017-10-06', missingImages: 78, localCards: 78, total: 78 },
+          { id: 'sv01', releaseDate: '2023-03-31', missingImages: 0, localCards: 258, total: 258 },
+          { id: 'undated', releaseDate: '', missingImages: 0, localCards: 5, total: 5 },
+          { id: 'mfb', releaseDate: '2019-11-01', missingImages: 0, localCards: 34, total: 48 },
+          { id: 'jumbo', releaseDate: '2000-02-01', missingImages: 0, localCards: 0, total: 160 },
         ],
         now,
       ),
-    ).toEqual(['me06', 'sm3.5']);
+    ).toEqual(['me06', 'sm3.5', 'mfb', 'jumbo']);
   });
 });
 
@@ -129,9 +132,9 @@ describe('setsToRefreshMetadata', () => {
     expect(
       setsToRefreshMetadata(
         [
-          { id: 'me06', releaseDate: '2026-11-06', missingImages: 141, total: 141 },
-          { id: 'empty', releaseDate: '', missingImages: 0, total: 0 },
-          { id: 'sv01', releaseDate: '2023-03-31', missingImages: 0, total: 258 },
+          { id: 'me06', releaseDate: '2026-11-06', missingImages: 141, localCards: 141, total: 141 },
+          { id: 'empty', releaseDate: '', missingImages: 0, localCards: 0, total: 0 },
+          { id: 'sv01', releaseDate: '2023-03-31', missingImages: 0, localCards: 258, total: 258 },
         ],
         now,
       ),

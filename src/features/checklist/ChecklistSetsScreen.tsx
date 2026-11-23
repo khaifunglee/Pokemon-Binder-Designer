@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { browsableSet } from '../../db/cards';
 import { db } from '../../db/client';
 import { cards, collection, sets } from '../../db/schema';
 import { SyncStatusLine } from '../catalogue/SyncStatusLine';
@@ -13,7 +14,7 @@ import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 export function ChecklistSetsScreen() {
   const navigation = useNavigation();
   const { data: setRows } = useLiveQuery(
-    db.select().from(sets).orderBy(desc(sets.releaseDate)),
+    db.select().from(sets).where(browsableSet).orderBy(desc(sets.releaseDate)),
   );
   // Distinct owned cards per set (any variant counts as owned once).
   const { data: ownedRows } = useLiveQuery(
