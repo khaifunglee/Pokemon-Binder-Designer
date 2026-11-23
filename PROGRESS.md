@@ -38,7 +38,25 @@ docs/superpowers/plans/2026-11-23-step2-catalogue-onboarding.md.
   `abbreviation`, needed for CSV set codes); `cards_ingested_at` reused as the sync
   marker; raw flags stored; recent placeholder sets re-topped-up weekly, not daily; no
   monthly back-off for never-priced sets; GraphQL filter variable is `ID!`.
-- NEEDS SIMULATOR CHECK (spec Verification 1–10), then phone (starts onboarding there).
+- **Review fixes (2026-11-23):** real transactions (drizzle's expo-sqlite
+  `transaction` is sync: writes now use `.all()`/`.run()` in sync callbacks),
+  15 s REST timeout, settled set/card fetches, hostile-key and field
+  sanitising, Android-safe variant sheet.
+- **Simulator check (2026-11-23):** items 2–10 pass; item 1 (offline first
+  launch) not tested yet, re-test before merge. Images take a few seconds on
+  first view (lazy). Onboarding showed "30+ sets couldn't download": the
+  Simulator lost its connection for ~1 min mid-download (log: 4 timeouts then
+  "Network request failed"), plus 4 sets TCGdex lists but has no cards for
+  (`jumbo`, `rc`, `sp`, `wp`). All others synced on the next start.
+- **Follow-ups from that check:** incomplete sets (local cards < cardCount.total)
+  are stored as synced, noted in the checklist and re-checked daily; empty
+  synced sets are hidden from set lists; 3 network failures in a row skip the
+  rest ("Connection lost") and other failures get one automatic retry;
+  "Continue with N sets" when some are downloaded; checklist ↻ greys out with
+  "Syncing this set in the background…" while the set is busy; onboarding
+  sets the re-check timestamp; dead code removed.
+- Remaining low-risk items: docs/idea.md Backlog → "Deferred minors".
+- NEEDS: offline first-launch re-test, then phone (starts onboarding there).
 
 ## Roadmap step 1: cleanup + quick fixes (2026-11-22) — DONE, merged 2026-11-23 (PR #1)
 
@@ -484,6 +502,9 @@ price TTL re-pull full payloads once upstream syncs. Alternatives
 paid) deliberately not pursued in MVP; user informed.
 
 ## Open items / blockers (refreshed 2026-11-23 against docs/idea.md)
+
+- Low-risk deferred review items from steps 1 and 2: docs/idea.md Backlog →
+  "Deferred minors".
 
 - Real CSV exports from Collectr, TCGplayer and pkmnbindr are needed by
   roadmap step 4 (D6).

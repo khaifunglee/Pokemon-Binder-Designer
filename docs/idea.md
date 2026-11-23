@@ -226,6 +226,35 @@ Each step gets its own plan → approval → tested commits.
 8. AI binder and theme recommendations (Phase 2).
 9. *Food for thought:* **cameo cards** (a Pokémon appearing on a card labelled as another).
    No data source has this, so it would need a hand-curated list.
+10. **A source for missing card images** (added 2026-11-23). About 8% of cards (1,763) have
+    no TCGdex image and show the name/number placeholder. Checked 2026-11-23: the
+    pokemontcg.io image CDN still serves older sets TCGdex lacks (e.g. `sm35` Shining
+    Legends, `sm75` Dragon Majesty, `swsh45sv` Shiny Vault, `swsh12pt5gg`, `ecard2`) but
+    returns 404 for the Mega era (`me2pt5`, `me3`, `me6` Delta Reign), and its API returned
+    502. A fallback would need a TCGdex → pokemontcg.io set/number map
+    (`sm3.5` → `sm35`, `swsh4.5sv` → `swsh45sv`, …). Recent sets still need another source.
+11. **Variant menu: show in-use manual variants as greyed, not removable** (alternative to
+    today's "Remove" that explains it's in use). E.g. "Reverse Holo (added by you, in use)".
+
+### Deferred minors (low risk, from reviews)
+
+From roadmap step 1:
+- Sets with no release date sort first in master-set (a test pins it). Decide: first or last?
+- `planFromSequence` drops cards silently if the binder lacks room (callers add pages first
+  today). Add a guard when organize is reworked in step 7.
+- Older services use `db.transaction(async …)`, which drizzle's expo-sqlite driver commits
+  before the awaited queries run, so their multi-step writes aren't atomic: `binders`,
+  `organize`, `slots`, `collectionService`, `importService`, `stackingService`,
+  `ratesService`. Found in the step 2 review; step 2's own write paths are fixed.
+
+From roadmap step 2 (2026-11-23):
+- "Price keys beat bare-normal flags" applies to any card, not only placeholder-flag sets.
+- Cards cached before migration 0005 whose set never re-synced lose REST-derived
+  variants on a manual add (moot once onboarding has run).
+- No named `me06-001` test in `mergeVariants`.
+- No response-size cap before `res.json()` (TCGdex responses are ≤ ~300 KB per set today).
+- Upstream GraphQL error text is logged untruncated.
+- In-use variants read/write can still race against the older async services above.
 
 ---
 
