@@ -36,7 +36,9 @@ A checklist missing reverse holos for all of XY and Sun & Moon would fail that.
 | Cards with no image | **1,763 (8.2%)**: e.g. `me06` 141/141, `swsh4.5sv` 122/122, `mep`, `sm3.5`, `sm7.5`, `swsh12.5gg`, trainer kits |
 | Sets whose variant flags are **all normal-only** | **44 sets, 4,396 cards**: every main XY set (`xy0`–`xy12`, `xya`, `xyp`), most Sun & Moon sets (`sm1`–`sm8`, `sm12`, `sm115`, `sm3.5`, `sm7.5`, `sma`), `bw8`, `bw9`, `bwp`, `g1`, `dc1`, `det1`, `ex5.5`, `me06`, `mfb`, `ru1`, the XY trainer kits |
 | Healthy sets (sampled `sv01`, `me05`, `swsh1`) | flags match the REST price keys exactly |
-| REST price keys in the 44 sets | correct: e.g. `sm1-1` → `normal` + `reverse-holofoil`, `xy1-1` → `holofoil` |
+| REST price keys in the 44 sets | correct where present: e.g. `sm1-1` → `normal` + `reverse-holofoil`, `xy1-1` → `holofoil` |
+| Flagged-set cards with **no TCGplayer prices** (sampled every 5th card of 12 flagged sets, 281 cards) | **67 (24%)**: whole sets with none, `xyp` 44/44, `mfb` 7/7, `g1` Radiant Collection 7; plus scattered gaps in main sets, 8 of 141 sampled (~6%) in `sm1`, `sm7`, `bw8`, `xy7`, e.g. `sm1-166` Common. Extrapolated very roughly: ~1,000 of the 4,396 flagged cards |
+| Sampled price keys that confirm normal-only | 7 (2%), mostly the trainer kit `tk-xy-n` |
 
 GraphQL details that matter for the build:
 - `set(id) { cards { … } }` returns **shallow** cards with no variants, illustrator or
@@ -155,6 +157,21 @@ That's what checklist fix (a) asks for: "show every variant TCGdex prices".
 - *Rejected:* guessing variants from rarity or era rules. It invents data that doesn't
   exist, e.g. reverse holos for sets that had none.
 
+### Cards with no TCGdex price data (chosen by the user: 1 + 3)
+
+About a quarter of flagged-set cards have no `tcgplayer` block, so the top-up can't
+correct them (see measurements).
+- **1. Keep the flags, re-check weekly. (Chosen.)** Unpriced cards keep their flag
+  variants. They're re-checked weekly and correct themselves when TCGdex adds prices.
+  This never invents data.
+- **2. Copy the pattern from priced cards of the same rarity in the set** (e.g. ≥90% of
+  priced `sm1` Commons have a reverse holo, so give unpriced ones one too), marked as
+  inferred. *Rejected:* a wrong reverse holo on a master-set checklist is worse than a
+  missing one the user can add. It also does nothing for promo and McDonald's sets.
+- **3. The user adds a variant by hand. (Chosen, together with 1.)** It's always right
+  for cards the user actually holds, it covers promos and odd cases, and no sync
+  overwrites it.
+
 ### Catalogue download (decided in D18)
 
 - **One GraphQL query per set (D18). Chosen.** It gives natural progress ("120 of 202
@@ -170,8 +187,18 @@ That's what checklist fix (a) asks for: "show every variant TCGdex prices".
 
 - **`cards.illustrator`**: `text`, nullable.
 - **`cards.price_variants`**: `text` (JSON `string[]`), nullable. These are the variants
-  found in REST price keys by the top-up or a stats price fetch. `null` means not
-  checked yet.
+  found in REST price keys by the top-up or a stats price fetch.
+  - `null` means not checked yet.
+  - `[]` means checked, but TCGdex has **no TCGplayer prices** for the card. The weekly
+    re-check (§4) targets these.
+- **`cards.price_checked_at`**: `integer` timestamp, nullable. When `price_variants` was
+  last written. It drives the weekly re-check of unpriced cards.
+- **`cards.manual_variants`**: `text` (JSON `string[]`), not null, default `'[]'`.
+  Variants the user added by hand (§7a).
+  - Only the user writes it. **No sync, top-up or stats fetch ever touches it.**
+  - It lives on `cards`, not in a separate table, because card rows are never deleted
+    and every read site already loads the card row. Builder's call to use a table
+    instead, if that turns out simpler for the upsert's column list.
 - **`sets.placeholder_flags`**: `integer` boolean, default false. Written on every
   GraphQL sync of the set, from `isPlaceholderFlagSet` on the **fresh payload**. It has
   to be stored because `cards.variants` holds the merged result, so the raw flags aren't
@@ -224,11 +251,15 @@ That's what checklist fix (a) asks for: "show every variant TCGdex prices".
       than silently dropped.
     - Use only the `tcgplayer` block, never `cardmarket`. Its `-holo` suffix means
       something different in EU listings.
-  - `mergeVariants(flags, prices | null)`: the union, in `KNOWN_VARIANTS` order, never
-    empty. Two rules:
-    - when price data exists and the flags are the placeholder `['normal']`, trust the
-      price keys. E.g. `xy1-1` is holofoil-only, so a bare `normal` must not stay.
-    - otherwise, take the union.
+  - `mergeVariants({ flags, prices, manual, inUse })`: the union, in `KNOWN_VARIANTS`
+    order, never empty. Rules:
+    - when price data exists (non-empty) and the flags are the placeholder `['normal']`,
+      trust the price keys. E.g. `xy1-1` is holofoil-only, so a bare `normal` must not
+      stay.
+    - when prices are `null` (not checked) or `[]` (no TCGplayer data), **keep the
+      flags** (option 1). Nothing is inferred.
+    - otherwise, take the union of flags and prices.
+    - **`manual` variants are always included**, whatever the other sources say.
     - **never drop a variant the user already uses.** The caller passes the variants
       referenced by `collection` or `slots` for that card, and they're always kept.
       Example: during the ~12-minute top-up window the user checks off `xy1-1` "normal",
@@ -236,7 +267,8 @@ That's what checklist fix (a) asks for: "show every variant TCGdex prices".
       showing until they remove it.
 
     Unit-test this with the measured cases: `sm1-1`, `xy1-1`, `me06-001`, an `sv01` card
-    where they agree, a card with no price block, and a dropped variant still in use.
+    where they agree, a card with no price block (`sm1-166`: stays normal-only), a manual
+    reverse holo on an unpriced card, and a dropped variant still in use.
   - `isPlaceholderFlagSet(cards)`: true when every card's derived flags are exactly
     `['normal']`. Today that matches the 44 sets. A few may be genuinely normal-only
     (trainer kits, `mfb`), which is fine, because the top-up just confirms them.
@@ -277,9 +309,19 @@ That's what checklist fix (a) asks for: "show every variant TCGdex prices".
   null (§1).
 - **Per set:**
   1. Fetch its card ids' REST details (existing `fetchCardDetails`, concurrency 6).
-  2. Compute `priceVariants` for each card.
-  3. In one transaction: write `price_variants` and the merged `variants`, then set
+  2. Compute `priceVariants` for each card. A card with no `tcgplayer` block, or one with
+     no variant keys, gets `[]`.
+  3. In one transaction: write `price_variants`, `price_checked_at` and the merged
+     `variants` (with `manual_variants` and in-use variants), then set
      `variants_checked_at`.
+- **Weekly re-check of unpriced cards** (option 1). On the daily re-check (§5), cards
+  with `price_variants = []` and `price_checked_at` over **7 days** old get their REST
+  detail fetched again.
+  - Today that's very roughly 1,000 cards. Most are in whole sets with no prices (`xyp`,
+    `mfb`), so the builder may skip a set whose cards were **all** unpriced on the last
+    two checks and re-check it monthly instead (builder's call; it saves ~1,000 requests
+    a week).
+  - When prices appear, the card's variants correct themselves through `mergeVariants`.
 - **All-or-nothing per set**, so an interrupted set is simply redone. Offline pauses it
   until the next app start.
 - **Prices fetched here are discarded** (D19: prices are fetched for template stats).
@@ -346,6 +388,30 @@ Run in the background after migrations, replacing today's `ingestSets` call in
   them alone.
 - **Rendering cost stays fixed:** a plain `View` + `Text`, no Skia, no per-card animation.
 
+### 7a. Add a variant by hand (option 3)
+
+For cards TCGdex lists incompletely, e.g. `sm1-166` with no prices and placeholder flags.
+- **Where:** long-press a checklist row → an action sheet with **"Add variant"**, listing
+  the `KNOWN_VARIANTS` the card doesn't have yet, by their display labels from
+  `variantLabels.ts`. Picking one:
+  1. appends it to `cards.manual_variants`
+  2. recomputes `cards.variants` via `mergeVariants`
+  3. the new checklist row appears straight away (live query)
+- **Remove:** a manually added variant shows a small "added by you" marker. Long-press
+  offers **"Remove variant"** only for manual variants, and only when it isn't in
+  `collection` or `slots`. If it is, explain why it can't be removed yet. Synced variants
+  can't be removed by hand.
+- **Steps:** long-press → Add variant → pick, i.e. 3 steps, within the ≤3-step bar.
+- **Reach:** the picker's variant menu and the import matcher read `cards.variants`, so
+  they see manual variants with no extra work.
+- **Template binders (step 5)** treat manual variants like any other variant, e.g. a
+  master-set template gets a pocket for them. Recorded here so step 5 doesn't need to
+  rediscover it.
+- **Pure logic** (`addManualVariant`, `removableManualVariants`) lives in `src/lib/` with
+  tests. The DB write is one transaction in a `src/db/` service.
+- **Logging:** `[catalogue] manual variant sm1-166 +reverseHolofoil`. Card ids are public
+  catalogue data, not sensitive.
+
 ### 8. Progress messages (user request, 2026-11-23)
 
 The user wants to **see what the sync is doing underneath**, both in the app and in the
@@ -398,6 +464,9 @@ Messages, by stage (exact wording is the builder's call; these are the intent):
   - `isPlaceholderFlagSet`
   - re-check set selection (90-day window, missing images, 24 h throttle, using an
     injectable clock)
+  - weekly unpriced-card selection (`price_variants = []`, 7-day age)
+  - `addManualVariant` / `removableManualVariants` (no duplicates, unknown variants
+    rejected, in-use variants not removable)
   - candidate selection keeps every Pocket guarantee: lookup failure, empty lookup,
     a `tcgp` set, a missing series
 - **Migration check:** `scripts/verify-migration-0005.sh`, modelled on 0004's script.
@@ -417,7 +486,10 @@ Messages, by stage (exact wording is the builder's call; these are the intent):
   7. **Delta Reign (`me06`):** placeholders with name + number in the checklist and in a
      binder pocket. Its variants include reverse holo after the top-up.
   8. **Picker and drag & drop** still work with placeholder cards.
-  9. **Stats for a binder** still show prices.
+  9. **Checklist for `sm1`, card #166** (no TCGdex prices): normal only. Long-press →
+     Add variant → Reverse Holo adds the row. Check it off, then confirm "Remove variant"
+     is refused while it's owned. The variant survives a ↻ re-sync and a relaunch.
+  10. **Stats for a binder** still show prices.
 
 ## Docs to update (same step)
 
@@ -454,6 +526,10 @@ Messages, by stage (exact wording is the builder's call; these are the intent):
 - **Price-key presence counts as a variant**, even with no current price.
 - **A variant the user already owns or has in a pocket is never removed** by a variant
   merge, even if the price keys say it doesn't exist.
+- **Manual variants are stored on `cards`** (`manual_variants`), they can be removed only
+  while they're unused, and long-press on a checklist row is the entry point.
+- **Unpriced cards are re-checked weekly**, with an optional monthly back-off for whole
+  sets that never have prices.
 - **When flags are the bare `['normal']` placeholder and price keys exist, the price keys
   win** (so holo-only cards don't keep a fake normal).
 - **"Continue anyway"** after a partial onboarding failure, so one bad set can't trap the
