@@ -6,6 +6,7 @@ import {
   isRecent,
   setsNeedingTopUp,
   setsToRecheck,
+  setsToRefreshMetadata,
   setsToSync,
   topUpsToReopen,
 } from '../syncPlan';
@@ -120,5 +121,20 @@ describe('cardsDuePriceRecheck', () => {
         now,
       ),
     ).toEqual(['old-unpriced', 'never-dated']);
+  });
+});
+
+describe('setsToRefreshMetadata', () => {
+  it('refreshes re-checked sets and sets first seen with no cards', () => {
+    expect(
+      setsToRefreshMetadata(
+        [
+          { id: 'me06', releaseDate: '2026-11-06', missingImages: 141, total: 141 },
+          { id: 'empty', releaseDate: '', missingImages: 0, total: 0 },
+          { id: 'sv01', releaseDate: '2023-03-31', missingImages: 0, total: 258 },
+        ],
+        now,
+      ),
+    ).toEqual(['me06', 'empty']);
   });
 });

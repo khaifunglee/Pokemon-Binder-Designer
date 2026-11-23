@@ -33,13 +33,24 @@ export const PRICE_KEY_MAP: Record<string, string> = {
   'unlimited-holofoil': 'unlimitedHolofoil',
 };
 
+/**
+ * Variant for a TCGplayer price key. Own keys only: API data is untrusted,
+ * and a plain-object lookup would return prototype members for keys like
+ * `__proto__` or `constructor`.
+ */
+export function priceKeyVariant(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(PRICE_KEY_MAP, key) ? PRICE_KEY_MAP[key] : undefined;
+}
+
 /** Dedupe, then canonical order; unknown variants last, alphabetically. */
 export function sortVariants(variants: Iterable<string>): string[] {
   const rank = (v: string): number => {
     const index = KNOWN_VARIANTS.indexOf(v as (typeof KNOWN_VARIANTS)[number]);
     return index === -1 ? KNOWN_VARIANTS.length : index;
   };
-  return [...new Set(variants)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+  return [...new Set(variants)]
+    .filter((v): v is string => typeof v === 'string')
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
 }
 
 /** Image asset bases need a quality/extension suffix. */
@@ -122,7 +133,7 @@ export function extractPrices(card: Pick<DexCardDetail, 'pricing'>): ExtractedPr
   if (!block) return [];
   const out: ExtractedPrice[] = [];
   for (const [key, entry] of Object.entries(block)) {
-    const variant = PRICE_KEY_MAP[key];
+    const variant = priceKeyVariant(key);
     if (!variant || entry == null || typeof entry !== 'object') continue;
     const value = entry.marketPrice ?? entry.midPrice ?? entry.lowPrice;
     if (value != null && value > 0) out.push({ variant, marketUsd: value });

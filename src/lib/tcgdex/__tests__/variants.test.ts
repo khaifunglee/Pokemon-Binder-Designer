@@ -151,3 +151,20 @@ describe('canAddManualVariant', () => {
     expect(canAddManualVariant('sparkly', ['normal'])).toBe(false);
   });
 });
+
+describe('priceVariants — hostile keys', () => {
+  it('ignores built-in object keys instead of returning prototype values', () => {
+    const block = JSON.parse('{"__proto__":{},"constructor":{},"toString":{},"normal":{}}');
+    const unknown: string[] = [];
+    expect(priceVariants(block, (k) => unknown.push(k))).toEqual(['normal']);
+    expect(unknown.sort()).toEqual(['__proto__', 'constructor', 'toString']);
+  });
+});
+
+describe('sortVariants — non-string input', () => {
+  it('drops anything that is not a string', () => {
+    expect(sortVariants(['normal', {} as unknown as string, 5 as unknown as string])).toEqual([
+      'normal',
+    ]);
+  });
+});

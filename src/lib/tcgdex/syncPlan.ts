@@ -57,6 +57,19 @@ export function setsToRecheck(
     .map((s) => s.id);
 }
 
+/**
+ * Sets whose REST set row (total, release date, name) should be fetched
+ * again: the re-checked ones, plus sets first seen with no cards, which
+ * otherwise never sync or re-check.
+ */
+export function setsToRefreshMetadata(
+  sets: { id: string; releaseDate: string; missingImages: number; total: number }[],
+  now: Date,
+): string[] {
+  const recheck = new Set(setsToRecheck(sets, now));
+  return sets.filter((s) => recheck.has(s.id) || s.total === 0).map((s) => s.id);
+}
+
 export function setsNeedingTopUp(
   sets: { id: string; placeholderFlags: boolean; variantsCheckedAt: Date | null }[],
 ): string[] {

@@ -1,4 +1,4 @@
-import { fetchSetCards, GRAPHQL_URL, isGqlCard, postGraphql } from '../graphql';
+import { fetchSetCards, GRAPHQL_URL, isGqlCard, postGraphql, sanitizeGqlCard } from '../graphql';
 import type { GqlCard } from '../types';
 
 const realFetch = global.fetch;
@@ -79,5 +79,66 @@ describe('fetchSetCards', () => {
   it('throws when data.cards is not a list', async () => {
     respondWith({ data: { cards: null } });
     await expect(fetchSetCards('sm1')).rejects.toThrow('cards');
+  });
+});
+
+describe('sanitizeGqlCard', () => {
+  const base = card('sv01-001', 'sv01');
+
+  it('keeps well-formed optional fields', () => {
+    const clean = sanitizeGqlCard({
+      ...base,
+      rarity: 'Common',
+      illustrator: 'Satoshi Ito',
+      types: ['Grass'],
+      dexId: [214],
+      image: 'https://assets.tcgdex.net/en/sv/sv01/001',
+      variants: { normal: true, reverse: true },
+    });
+    expect(clean).toMatchObject({
+      rarity: 'Common',
+      illustrator: 'Satoshi Ito',
+      types: ['Grass'],
+      dexId: [214],
+      image: 'https://assets.tcgdex.net/en/sv/sv01/001',
+      variants: { normal: true, reverse: true, holo: false, firstEdition: false },
+    });
+  });
+
+  it('nulls or empties fields of the wrong type or size', () => {
+    const clean = sanitizeGqlCard({
+      ...base,
+      rarity: { evil: true },
+      illustrator: 'x'.repeat(500),
+      types: 'Grass',
+      dexId: Array.from({ length: 1000 }, (_, i) => i + 1),
+      variants: { normal: 'yes' },
+    } as unknown as GqlCard);
+    expect(clean.rarity).toBeNull();
+    expect(clean.illustrator).toBeNull();
+    expect(clean.types).toEqual([]);
+    expect(clean.dexId).toEqual([]);
+    expect(clean.variants).toEqual({ normal: false, reverse: false, holo: false, firstEdition: false });
+  });
+
+  it('drops non-numeric dex ids and non-string types', () => {
+    const clean = sanitizeGqlCard({
+      ...base,
+      types: ['Grass', 7],
+      dexId: [25, 'x', -1, 1.5],
+    } as unknown as GqlCard);
+    expect(clean.types).toEqual(['Grass']);
+    expect(clean.dexId).toEqual([25]);
+  });
+
+  it('accepts only https image URLs', () => {
+    expect(sanitizeGqlCard({ ...base, image: 'http://evil/x' }).image).toBeNull();
+    expect(sanitizeGqlCard({ ...base, image: 'file:///etc/x' }).image).toBeNull();
+  });
+});
+
+describe('isGqlCard — oversized fields', () => {
+  it('rejects absurdly long ids or names', () => {
+    expect(isGqlCard({ ...card('sv01-001', 'sv01'), name: 'x'.repeat(1000) })).toBe(false);
   });
 });

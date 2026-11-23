@@ -1,4 +1,4 @@
-import { KNOWN_VARIANTS, PRICE_KEY_MAP, sortVariants } from './mappers';
+import { KNOWN_VARIANTS, priceKeyVariant, sortVariants } from './mappers';
 
 /**
  * Variant sources and how they combine. TCGdex's variant flags are
@@ -23,7 +23,7 @@ export function priceVariants(
   const found: string[] = [];
   for (const [key, value] of Object.entries(tcgplayer)) {
     if (NON_VARIANT_KEYS.has(key)) continue;
-    const variant = PRICE_KEY_MAP[key];
+    const variant = priceKeyVariant(key);
     if (!variant) {
       onUnknownKey?.(key);
       continue;
