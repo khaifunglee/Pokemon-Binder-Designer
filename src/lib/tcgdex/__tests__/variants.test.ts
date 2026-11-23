@@ -1,6 +1,7 @@
 import { sortVariants } from '../mappers';
 import {
   addableVariants,
+  canAddManualVariant,
   isPlaceholderFlagSet,
   mergeVariants,
   priceVariants,
@@ -134,5 +135,19 @@ describe('sortVariants', () => {
       'reverseHolofoil',
       'zzz',
     ]);
+  });
+});
+
+describe('canAddManualVariant', () => {
+  it('allows a known variant the card lacks', () => {
+    expect(canAddManualVariant('reverseHolofoil', ['normal'])).toBe(true);
+  });
+
+  it('rejects a variant the card already has', () => {
+    expect(canAddManualVariant('normal', ['normal'])).toBe(false);
+  });
+
+  it('rejects an unknown variant', () => {
+    expect(canAddManualVariant('sparkly', ['normal'])).toBe(false);
   });
 });

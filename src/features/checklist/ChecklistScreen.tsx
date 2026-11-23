@@ -26,6 +26,12 @@ import { adjustOwnedQuantity, toggleOwned } from '../../db/collectionService';
 import { resyncSet } from '../../db/catalogueSync';
 import { cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
+import {
+  addManualVariant,
+  removeManualVariant,
+  VariantInUseError,
+} from '../../db/variantService';
+import { addableVariants } from '../../lib/tcgdex/variants';
 import type { RootStackParamList } from '../../navigation/types';
 import { SyncStatusLine } from '../catalogue/SyncStatusLine';
 import { CardFace } from '../cards/CardFace';
@@ -46,6 +52,7 @@ interface RowProps {
   quantity: number | undefined;
   onToggle: (cardId: string, variant: string) => void;
   onAdjust: (cardId: string, variant: string, delta: number) => void;
+  onVariantMenu: (card: CardRow) => void;
 }
 
 /** Memoized: a toggle re-renders only the row it changed. */
@@ -55,12 +62,14 @@ const ChecklistRow = memo(function ChecklistRow({
   quantity,
   onToggle,
   onAdjust,
+  onVariantMenu,
 }: RowProps) {
   const owned = quantity !== undefined;
   return (
     <Pressable
       style={[styles.row, owned && styles.rowOwned]}
       onPress={() => onToggle(card.id, variant)}
+      onLongPress={() => onVariantMenu(card)}
     >
       <CardFace
         name={card.name}
@@ -76,6 +85,7 @@ const ChecklistRow = memo(function ChecklistRow({
         <Text style={styles.rowSub}>
           {variantLabel(variant)}
           {card.rarity ? ` · ${card.rarity}` : ''}
+          {card.manualVariants.includes(variant) ? ' · added by you' : ''}
         </Text>
       </View>
       {owned ? (
@@ -228,6 +238,40 @@ export function ChecklistScreen({ route, navigation }: Props) {
     [dbOwnedByKey, enqueueWrite],
   );
 
+  // Long-press: add a variant TCGdex doesn't list, or remove one you added.
+  // Three steps to add: long-press → Add variant → pick.
+  const onVariantMenu = useCallback((card: CardRow) => {
+    const fail = (e: unknown) =>
+      Alert.alert(
+        e instanceof VariantInUseError ? "Can't remove variant" : 'Variant not changed',
+        e instanceof VariantInUseError
+          ? 'You own or have placed this variant. Remove it from your collection and binders first.'
+          : e instanceof Error
+            ? e.message
+            : String(e),
+      );
+    const addChoices = addableVariants(card.variants).map((variant) => ({
+      text: variantLabel(variant),
+      onPress: () => void addManualVariant(db, card.id, variant).catch(fail),
+    }));
+    Alert.alert(`#${card.number} ${card.name}`, undefined, [
+      {
+        text: 'Add variant',
+        onPress: () =>
+          Alert.alert('Add variant', 'For variants TCGdex doesn\'t list.', [
+            ...addChoices,
+            { text: 'Cancel', style: 'cancel' },
+          ]),
+      },
+      ...card.manualVariants.map((variant) => ({
+        text: `Remove ${variantLabel(variant)}`,
+        style: 'destructive' as const,
+        onPress: () => void removeManualVariant(db, card.id, variant).catch(fail),
+      })),
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  }, []);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: setRows?.[0]?.name ?? 'Checklist',
@@ -287,6 +331,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
             quantity={quantityFor(key)}
             onToggle={onToggle}
             onAdjust={onAdjust}
+            onVariantMenu={onVariantMenu}
           />
         );
       }}

@@ -71,3 +71,8 @@ export function addableVariants(current: string[]): string[] {
 export function removableManualVariants(manual: string[], inUse: string[]): string[] {
   return manual.filter((v) => !inUse.includes(v));
 }
+
+/** A manual variant must be one we know and one the card doesn't list. */
+export function canAddManualVariant(variant: string, current: string[]): boolean {
+  return addableVariants(current).includes(variant);
+}
