@@ -15,17 +15,32 @@ export const KNOWN_VARIANTS = [
   'unlimitedHolofoil',
 ] as const;
 
-/** TCGdex tcgplayer pricing keys (hyphenated) → our variant keys. */
-const PRICE_KEY_MAP: Record<string, string> = {
+/**
+ * TCGdex tcgplayer pricing keys → our variant keys. Live payloads use the
+ * hyphenated names; older ones used `reverse` / `holo` (e.g. swsh3-136 in
+ * 2025-08), so both spellings map.
+ */
+export const PRICE_KEY_MAP: Record<string, string> = {
   normal: 'normal',
   holofoil: 'holofoil',
+  holo: 'holofoil',
   'reverse-holofoil': 'reverseHolofoil',
+  reverse: 'reverseHolofoil',
   '1st-edition': '1stEditionNormal',
   '1st-edition-normal': '1stEditionNormal',
   '1st-edition-holofoil': '1stEditionHolofoil',
   unlimited: 'unlimited',
   'unlimited-holofoil': 'unlimitedHolofoil',
 };
+
+/** Dedupe, then canonical order; unknown variants last, alphabetically. */
+export function sortVariants(variants: Iterable<string>): string[] {
+  const rank = (v: string): number => {
+    const index = KNOWN_VARIANTS.indexOf(v as (typeof KNOWN_VARIANTS)[number]);
+    return index === -1 ? KNOWN_VARIANTS.length : index;
+  };
+  return [...new Set(variants)].sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
 
 /** Image asset bases need a quality/extension suffix. */
 export function cardImageUris(base: string | undefined): {

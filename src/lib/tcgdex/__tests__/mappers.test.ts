@@ -125,6 +125,12 @@ describe('mapCardBrief', () => {
 });
 
 describe('extractPrices', () => {
+  it('maps the legacy short "reverse" key', () => {
+    expect(
+      extractPrices({ pricing: { tcgplayer: { reverse: { marketPrice: 0.23 } } } }),
+    ).toEqual([{ variant: 'reverseHolofoil', marketUsd: 0.23 }]);
+  });
+
   it('maps hyphenated pricing keys with market→mid→low fallback', () => {
     expect(
       extractPrices({
