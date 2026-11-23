@@ -83,13 +83,6 @@ export function fetchCardDetails(
   return pooledFetch(cardIds, fetchCardDetail, onProgress);
 }
 
-export function fetchSetDetails(
-  setIds: string[],
-  onProgress?: (done: number, total: number) => void,
-): Promise<DexSetDetail[]> {
-  return pooledFetch(setIds, fetchSetDetail, onProgress);
-}
-
 /**
  * Like pooledFetch, but one failure doesn't stop the rest: onboarding
  * keeps every set that downloads and retries only the ones that didn't.

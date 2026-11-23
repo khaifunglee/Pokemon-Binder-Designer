@@ -177,12 +177,3 @@ export async function refreshSetPrices(
   await applyRestDetails(db, await fetchSetCardDetails(setId), { storePrices: true });
   return true;
 }
-
-/** Sets whose card data has been synced. */
-export async function listIngestedSetIds(db: Db): Promise<string[]> {
-  const rows = await db
-    .select({ id: sets.id })
-    .from(sets)
-    .where(sql`${sets.cardsIngestedAt} IS NOT NULL`);
-  return rows.map((r) => r.id);
-}
