@@ -34,6 +34,8 @@ import {
 import { addableVariants } from '../../lib/tcgdex/variants';
 import type { RootStackParamList } from '../../navigation/types';
 import { SyncStatusLine } from '../catalogue/SyncStatusLine';
+import { OptionSheet } from './OptionSheet';
+import type { SheetSpec } from './OptionSheet';
 import { CardFace } from '../cards/CardFace';
 import { variantLabel } from '../cards/variantLabels';
 
@@ -240,6 +242,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
 
   // Long-press: add a variant TCGdex doesn't list, or remove one you added.
   // Three steps to add: long-press → Add variant → pick.
+  const [sheet, setSheet] = useState<SheetSpec | null>(null);
   const onVariantMenu = useCallback((card: CardRow) => {
     const fail = (e: unknown) =>
       Alert.alert(
@@ -250,26 +253,26 @@ export function ChecklistScreen({ route, navigation }: Props) {
             ? e.message
             : String(e),
       );
-    const addChoices = addableVariants(card.variants).map((variant) => ({
-      text: variantLabel(variant),
-      onPress: () => void addManualVariant(db, card.id, variant).catch(fail),
-    }));
-    Alert.alert(`#${card.number} ${card.name}`, undefined, [
-      {
-        text: 'Add variant',
-        onPress: () =>
-          Alert.alert('Add variant', 'For variants TCGdex doesn\'t list.', [
-            ...addChoices,
-            { text: 'Cancel', style: 'cancel' },
-          ]),
-      },
-      ...card.manualVariants.map((variant) => ({
-        text: `Remove ${variantLabel(variant)}`,
-        style: 'destructive' as const,
-        onPress: () => void removeManualVariant(db, card.id, variant).catch(fail),
+    const addSheet: SheetSpec = {
+      title: 'Add variant',
+      message: "For variants TCGdex doesn't list.",
+      options: addableVariants(card.variants).map((variant) => ({
+        label: variantLabel(variant),
+        onPress: () => void addManualVariant(db, card.id, variant).catch(fail),
       })),
-      { text: 'Cancel', style: 'cancel' },
-    ]);
+    };
+    setSheet({
+      title: `#${card.number} ${card.name}`,
+      options: [
+        // Defer so the first sheet finishes closing before the next opens.
+        { label: 'Add variant', onPress: () => setTimeout(() => setSheet(addSheet), 0) },
+        ...card.manualVariants.map((variant) => ({
+          label: `Remove ${variantLabel(variant)}`,
+          destructive: true,
+          onPress: () => void removeManualVariant(db, card.id, variant).catch(fail),
+        })),
+      ],
+    });
   }, []);
 
   useLayoutEffect(() => {
@@ -336,6 +339,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
         );
       }}
       />
+      <OptionSheet sheet={sheet} onClose={() => setSheet(null)} />
     </View>
   );
 }
