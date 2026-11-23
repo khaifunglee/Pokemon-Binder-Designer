@@ -23,7 +23,7 @@ import {
 
 import { db } from '../../db/client';
 import { adjustOwnedQuantity, toggleOwned } from '../../db/collectionService';
-import { ensureSetCards } from '../../db/ingest';
+import { resyncSet } from '../../db/catalogueSync';
 import { getDisplayCurrency, getRate } from '../../db/ratesService';
 import { cardPrices, cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
@@ -111,15 +111,8 @@ export function ChecklistScreen({ route, navigation }: Props) {
   const [overrides, setOverrides] = useState<Map<string, number | null>>(new Map());
   const [priceLabels, setPriceLabels] = useState<Map<string, string>>(new Map());
 
-  useEffect(() => {
-    let cancelled = false;
-    ensureSetCards(db, setId)
-      .catch(() => {}) // offline with an ingested set still works below
-      .finally(() => !cancelled && setDownloading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [setId]);
+  // Cards are local since onboarding; nothing to download on open.
+  useEffect(() => setDownloading(false), [setId]);
 
   // Prices in the display currency; loaded once per visit (prices only
   // change on TTL refresh, not while tapping through a checklist).
@@ -292,7 +285,7 @@ export function ChecklistScreen({ route, navigation }: Props) {
             // Re-download the set's card data (variants, images, prices).
             onPress={() => {
               setRefreshing(true);
-              void ensureSetCards(db, setId, { force: true })
+              void resyncSet(db, setId)
                 .catch(() => {})
                 .finally(() => setRefreshing(false));
             }}

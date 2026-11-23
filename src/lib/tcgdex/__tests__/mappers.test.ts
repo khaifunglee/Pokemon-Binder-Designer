@@ -2,8 +2,6 @@ import {
   cardImageUris,
   deriveVariants,
   extractPrices,
-  mapCardBrief,
-  mapCardDetail,
   mapGraphqlCard,
   mapSetDetail,
 } from '../mappers';
@@ -90,38 +88,6 @@ describe('deriveVariants', () => {
   it('never returns empty', () => {
     expect(deriveVariants({})).toEqual(['normal']);
     expect(deriveVariants({ variants: {} })).toEqual(['normal']);
-  });
-});
-
-describe('mapCardDetail', () => {
-  it('maps to our cards row with é-supertype and image suffixes', () => {
-    expect(mapCardDetail(cardDetail)).toEqual({
-      id: 'me04-003',
-      name: 'Beedrill ex',
-      setId: 'me04',
-      number: '003',
-      rarity: 'Double rare',
-      supertype: 'Pokémon',
-      types: ['Grass'],
-      nationalPokedexNumbers: [15],
-      imageSmallUri: 'https://assets.tcgdex.net/en/me/me04/003/low.webp',
-      imageLargeUri: 'https://assets.tcgdex.net/en/me/me04/003/high.webp',
-      variants: ['holofoil'],
-    });
-  });
-});
-
-describe('mapCardBrief', () => {
-  it('builds a placeholder row good enough for FK references', () => {
-    const row = mapCardBrief(setDetail.cards[0], 'me04');
-    expect(row).toMatchObject({
-      id: 'me04-003',
-      setId: 'me04',
-      number: '003',
-      name: 'Beedrill ex',
-      variants: [],
-      supertype: '',
-    });
   });
 });
 

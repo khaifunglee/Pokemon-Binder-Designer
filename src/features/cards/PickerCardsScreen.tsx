@@ -14,7 +14,6 @@ import {
 
 import { listSetCards } from '../../db/cards';
 import { db } from '../../db/client';
-import { ensureSetCards } from '../../db/ingest';
 import type { CardRow } from '../../db/schema';
 import type { RootStackParamList } from '../../navigation/types';
 import { CARD_IMAGE_CACHE_POLICY } from './images';
@@ -35,11 +34,6 @@ export function PickerCardsScreen({ route, navigation }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        await ensureSetCards(db, setId);
-      } catch {
-        // Offline: fall through — the set may already be in SQLite.
-      }
       const rows = await listSetCards(db, setId);
       if (cancelled) return;
       setCards(rows);

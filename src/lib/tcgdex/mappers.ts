@@ -1,5 +1,5 @@
 import type { CardInsert, SetInsert } from '../../db/schema';
-import type { DexCardBrief, DexCardDetail, DexSetDetail, GqlCard } from './types';
+import type { DexCardDetail, DexSetDetail, GqlCard } from './types';
 
 /**
  * Our variant vocabulary (kept from the original tcgplayer price keys so
@@ -85,23 +85,6 @@ export function mapSetDetail(set: DexSetDetail): SetInsert {
   };
 }
 
-export function mapCardDetail(card: DexCardDetail): CardInsert {
-  const images = cardImageUris(card.image);
-  return {
-    id: card.id,
-    name: card.name,
-    setId: card.set.id,
-    number: card.localId,
-    rarity: card.rarity ?? null,
-    supertype: mapCategory(card.category),
-    types: card.types ?? [],
-    nationalPokedexNumbers: card.dexId ?? [],
-    imageSmallUri: images.small,
-    imageLargeUri: images.large,
-    variants: deriveVariants(card),
-  };
-}
-
 /**
  * A GraphQL card → our card row. `variants` starts as the flags; the sync
  * re-merges it with stored price and manual variants before writing.
@@ -125,27 +108,6 @@ export function mapGraphqlCard(
     imageLargeUri: images.large,
     variants: flagVariants,
     flagVariants,
-  };
-}
-
-/**
- * Placeholder card row from a set-detail brief — enough for slots and
- * collections to reference (FK) until the full detail is ingested.
- */
-export function mapCardBrief(brief: DexCardBrief, setId: string): CardInsert {
-  const images = cardImageUris(brief.image);
-  return {
-    id: brief.id,
-    name: brief.name,
-    setId,
-    number: brief.localId,
-    rarity: null,
-    supertype: '',
-    types: [],
-    nationalPokedexNumbers: [],
-    imageSmallUri: images.small,
-    imageLargeUri: images.large,
-    variants: [],
   };
 }
 

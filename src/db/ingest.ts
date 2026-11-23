@@ -1,5 +1,6 @@
 import { eq, max, sql } from 'drizzle-orm';
 
+import { logCatalogue } from '../lib/catalogueLog';
 import {
   fetchCardDetails,
   fetchSetBriefs,
@@ -8,31 +9,24 @@ import {
   fetchSeriesSetIds,
 } from '../lib/tcgdex/api';
 import { isKnownNonPocketSet, POCKET_SERIES_ID, selectSetsToFetch } from '../lib/tcgdex/filter';
-import { extractPrices, mapCardDetail, mapSetDetail } from '../lib/tcgdex/mappers';
-import type { DexSetDetail } from '../lib/tcgdex/types';
+import { deriveVariants, extractPrices, mapSetDetail } from '../lib/tcgdex/mappers';
+import type { DexCardDetail } from '../lib/tcgdex/types';
+import { mergeVariants, priceVariants } from '../lib/tcgdex/variants';
 import type { Db } from './client';
 import { cardPrices, cards, sets } from './schema';
 import type { SetInsert } from './schema';
-
-// Stay well under SQLite's bound-variable limit per statement.
-const CHUNK_SIZE = 100;
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
-  return out;
-}
+import { chunk, loadVariantSources } from './variantSources';
 
 export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
   if (rows.length === 0) return;
   await db.transaction(async (tx) => {
-    for (const batch of chunk(rows, CHUNK_SIZE)) {
+    for (const batch of chunk(rows)) {
       await tx
         .insert(sets)
         .values(batch)
         .onConflictDoUpdate({
           target: sets.id,
-          // cardsIngestedAt deliberately preserved on refresh.
+          // cardsIngestedAt and the variant bookkeeping are preserved.
           set: {
             name: sql`excluded.name`,
             series: sql`excluded.series`,
@@ -50,8 +44,9 @@ export async function upsertSets(db: Db, rows: SetInsert[]): Promise<void> {
 
 /**
  * Refresh the sets catalog: cheap brief listing, then full details only
- * for sets we don't have yet (details carry release dates). Runs in the
- * background at launch; the UI never waits on it.
+ * for sets we don't have yet (details carry release dates and the
+ * TCGplayer set code GraphQL lacks). Card data comes from
+ * catalogueSync.ts, only for sets this function let in.
  *
  * TCG Pocket (digital-only) sets are excluded and never fetched. Their
  * ids come from one small series lookup on every sync (no cache), run
@@ -74,42 +69,50 @@ export async function ingestSets(db: Db): Promise<number> {
   return details.length;
 }
 
-export interface IngestProgress {
-  (done: number, total: number): void;
-}
-
-async function upsertSetPayload(
+/**
+ * Write what REST card details say about variants (TCGplayer price keys)
+ * and, for the stats path only, their prices. Never touches card
+ * metadata or the set's sync marker, so it can't regress GraphQL data.
+ * Cards not in SQLite are skipped.
+ */
+export async function applyRestDetails(
   db: Db,
-  detail: DexSetDetail,
-  cardRows: ReturnType<typeof mapCardDetail>[],
-  priceRows: { cardId: string; variant: string; marketUsd: number }[],
+  details: DexCardDetail[],
+  opts: { storePrices: boolean },
 ): Promise<void> {
+  if (details.length === 0) return;
   const now = new Date();
+  const unknownKeys = new Set<string>();
   await db.transaction(async (tx) => {
-    for (const batch of chunk(cardRows, CHUNK_SIZE)) {
+    const stored = await loadVariantSources(
+      tx,
+      details.map((d) => d.id),
+    );
+    const known = details.filter((d) => stored.has(d.id));
+    for (const detail of known) {
+      const sources = stored.get(detail.id)!;
+      const flags = deriveVariants(detail);
+      const prices = priceVariants(detail.pricing?.tcgplayer, (key) => unknownKeys.add(key));
       await tx
-        .insert(cards)
-        .values(batch)
-        .onConflictDoUpdate({
-          target: cards.id,
-          set: {
-            name: sql`excluded.name`,
-            setId: sql`excluded.set_id`,
-            number: sql`excluded.number`,
-            rarity: sql`excluded.rarity`,
-            supertype: sql`excluded.supertype`,
-            types: sql`excluded.types`,
-            nationalPokedexNumbers: sql`excluded.national_pokedex_numbers`,
-            imageSmallUri: sql`excluded.image_small_uri`,
-            imageLargeUri: sql`excluded.image_large_uri`,
-            variants: sql`excluded.variants`,
-          },
-        });
+        .update(cards)
+        .set({
+          flagVariants: flags,
+          priceVariants: prices,
+          priceCheckedAt: now,
+          variants: mergeVariants({
+            flags,
+            prices,
+            manual: sources.manual,
+            inUse: sources.inUse,
+          }),
+        })
+        .where(eq(cards.id, detail.id));
     }
-    for (const batch of chunk(
-      priceRows.map((p) => ({ ...p, fetchedAt: now })),
-      CHUNK_SIZE,
-    )) {
+    if (!opts.storePrices) return;
+    const priceRows = known.flatMap((c) =>
+      extractPrices(c).map((p) => ({ cardId: c.id, ...p, fetchedAt: now })),
+    );
+    for (const batch of chunk(priceRows)) {
       await tx
         .insert(cardPrices)
         .values(batch)
@@ -121,65 +124,29 @@ async function upsertSetPayload(
           },
         });
     }
-    const setRow = mapSetDetail(detail);
-    await tx
-      .insert(sets)
-      .values({ ...setRow, cardsIngestedAt: now })
-      .onConflictDoUpdate({
-        target: sets.id,
-        set: {
-          name: sql`excluded.name`,
-          series: sql`excluded.series`,
-          printedTotal: sql`excluded.printed_total`,
-          total: sql`excluded.total`,
-          releaseDate: sql`excluded.release_date`,
-          ptcgoCode: sql`excluded.ptcgo_code`,
-          symbolUri: sql`excluded.symbol_uri`,
-          logoUri: sql`excluded.logo_uri`,
-          cardsIngestedAt: sql`excluded.cards_ingested_at`,
-        },
-      });
   });
+  if (unknownKeys.size > 0) {
+    logCatalogue(`unknown price keys: ${[...unknownKeys].sort().join(', ')}`);
+  }
 }
 
-/**
- * Ensure a set's full card data (details + prices) is in SQLite. TCGdex
- * serves card details per card, so this issues one pooled request per
- * card — report progress via `onProgress`. No-op once ingested unless
- * forced; all-or-nothing on failure (offline keeps whatever is local).
- */
-export async function ensureSetCards(
-  db: Db,
+/** REST details for every card TCGdex lists in a set. */
+export async function fetchSetCardDetails(
   setId: string,
-  opts: { force?: boolean; onProgress?: IngestProgress } = {},
-): Promise<void> {
-  if (!opts.force) {
-    const [row] = await db
-      .select({ ingestedAt: sets.cardsIngestedAt })
-      .from(sets)
-      .where(eq(sets.id, setId));
-    if (row?.ingestedAt != null) return;
-  }
+  onProgress?: (done: number, total: number) => void,
+): Promise<DexCardDetail[]> {
   const detail = await fetchSetDetail(setId);
-  const details = await fetchCardDetails(
+  return fetchCardDetails(
     detail.cards.map((c) => c.id),
-    opts.onProgress,
-  );
-  await upsertSetPayload(
-    db,
-    detail,
-    details.map(mapCardDetail),
-    details.flatMap((c) =>
-      extractPrices(c).map((p) => ({ cardId: c.id, ...p })),
-    ),
+    onProgress,
   );
 }
 
 export const PRICE_TTL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Re-fetch a set (cards + prices arrive together) when its prices are
- * older than the TTL. Returns true when refreshed.
+ * Re-fetch a set's prices (REST, per card) when they're older than the
+ * TTL. Template stats only (D19). Returns true when refreshed.
  */
 export async function refreshSetPrices(
   db: Db,
@@ -194,11 +161,11 @@ export async function refreshSetPrices(
   if (row?.newest != null && Date.now() - row.newest.getTime() < ttlMs) {
     return false;
   }
-  await ensureSetCards(db, setId, { force: true });
+  await applyRestDetails(db, await fetchSetCardDetails(setId), { storePrices: true });
   return true;
 }
 
-/** Sets whose card data has been fully ingested. */
+/** Sets whose card data has been synced. */
 export async function listIngestedSetIds(db: Db): Promise<string[]> {
   const rows = await db
     .select({ id: sets.id })
