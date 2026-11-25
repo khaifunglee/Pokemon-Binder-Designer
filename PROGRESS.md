@@ -6,9 +6,9 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-23): roadmap step 2 (catalogue onboarding) code complete on branch `feat/step2-catalogue`; NEEDS SIMULATOR CHECK before PR. Step 1 merged (PR #1). Next after step 2: roadmap step 3 (local backup / restore). Verdicts, decisions D1–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-25): roadmap step 2 (catalogue onboarding) Simulator-checked on branch `feat/step2-catalogue`; PR open for review. Step 1 merged (PR #1). Next after step 2: roadmap step 3 (local backup / restore). Verdicts, decisions D1–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
 
-## Roadmap step 2: catalogue onboarding (2026-11-23) — code complete, NEEDS SIMULATOR CHECK
+## Roadmap step 2: catalogue onboarding (2026-11-23) — Simulator-checked, PR open
 
 Spec: docs/superpowers/specs/2026-11-23-step2-catalogue-onboarding-design.md. Plan:
 docs/superpowers/plans/2026-11-23-step2-catalogue-onboarding.md.
@@ -56,7 +56,11 @@ docs/superpowers/plans/2026-11-23-step2-catalogue-onboarding.md.
   "Syncing this set in the background…" while the set is busy; onboarding
   sets the re-check timestamp; dead code removed.
 - Remaining low-risk items: docs/idea.md Backlog → "Deferred minors".
-- NEEDS: offline first-launch re-test, then phone (starts onboarding there).
+- **Re-test (2026-11-25):** offline first launch and a mid-download drop both
+  show the expected errors and recover on retry; the `mfb` "34 of 48" note
+  shows. The 4 empty sets are hidden as intended (Radiant Collection's cards
+  live in `bw11` and `g1`).
+- NEEDS: phone check (starts onboarding there), in the step 8 device pass.
 
 ## Roadmap step 1: cleanup + quick fixes (2026-11-22) — DONE, merged 2026-11-23 (PR #1)
 
