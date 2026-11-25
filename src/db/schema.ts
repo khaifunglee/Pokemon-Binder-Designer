@@ -1,3 +1,4 @@
+import { sql } from 'drizzle-orm';
 import {
   index,
   integer,
@@ -41,8 +42,12 @@ export const sets = sqliteTable('sets', {
   ptcgoCode: text('ptcgo_code'),
   symbolUri: text('symbol_uri'),
   logoUri: text('logo_uri'),
-  /** Set when all cards of the set have been ingested into `cards`. */
+  /** Set by the GraphQL per-set sync (step 2) once the set's cards are local. */
   cardsIngestedAt: integer('cards_ingested_at', { mode: 'timestamp_ms' }),
+  /** Every card's TCGdex flags are normal-only (placeholder data), per the last sync. */
+  placeholderFlags: integer('placeholder_flags', { mode: 'boolean' }).notNull().default(false),
+  /** When the REST price-key variant top-up last finished this set. */
+  variantsCheckedAt: integer('variants_checked_at', { mode: 'timestamp_ms' }),
 });
 
 export const cards = sqliteTable(
@@ -60,9 +65,24 @@ export const cards = sqliteTable(
     nationalPokedexNumbers: text('national_pokedex_numbers', { mode: 'json' })
       .$type<number[]>()
       .notNull(),
+    illustrator: text('illustrator'),
     imageSmallUri: text('image_small_uri'),
     imageLargeUri: text('image_large_uri'),
+    /** Merged from all sources below (mergeVariants); what every screen reads. */
     variants: text('variants', { mode: 'json' }).$type<string[]>().notNull(),
+    /** Raw TCGdex variant flags, kept so variants can be recomputed. */
+    flagVariants: text('flag_variants', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
+    /** From REST TCGplayer price keys: null = not checked, [] = no TCGplayer data. */
+    priceVariants: text('price_variants', { mode: 'json' }).$type<string[] | null>(),
+    priceCheckedAt: integer('price_checked_at', { mode: 'timestamp_ms' }),
+    /** Added by the user; no sync ever writes this. */
+    manualVariants: text('manual_variants', { mode: 'json' })
+      .$type<string[]>()
+      .notNull()
+      .default(sql`'[]'`),
   },
   (t) => [index('cards_set_id_idx').on(t.setId), index('cards_name_idx').on(t.name)],
 );

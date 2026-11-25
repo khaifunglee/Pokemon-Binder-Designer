@@ -6,9 +6,63 @@ small committed steps → `npx tsc --noEmit` + `npm test` green before each
 commit. Pure logic in `src/lib/` first, unit-tested before UI. This file must
 always be enough for a fresh session to resume.
 
-## Status (2026-11-22): roadmap step 1 (cleanup + quick fixes) built on branch `chore/step1-cleanup`, export verified on the Simulator; full Simulator check pending before merge. Next: roadmap step 2 (catalogue onboarding). Verdicts, decisions D18–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
+## Status (2026-11-25): roadmap step 2 (catalogue onboarding) Simulator-checked on branch `feat/step2-catalogue`; PR open for review. Step 1 merged (PR #1). Next after step 2: roadmap step 3 (local backup / restore). Verdicts, decisions D1–D21 and roadmap: docs/idea.md. Code map: docs/architecture.md.
 
-## Roadmap step 1: cleanup + quick fixes (2026-11-22)
+## Roadmap step 2: catalogue onboarding (2026-11-23) — Simulator-checked, PR open
+
+Spec: docs/superpowers/specs/2026-11-23-step2-catalogue-onboarding-design.md. Plan:
+docs/superpowers/plans/2026-11-23-step2-catalogue-onboarding.md.
+- **Onboarding:** first launch shows a one-time "Downloading card database…" screen.
+  `ingestSets` (REST set list + Pocket lookup, unchanged guarantees) then one GraphQL
+  query per set, 4 at a time. Resumes after a kill; offline → Retry; some sets failed
+  → Retry / Continue anyway (they retry next start).
+- **Startup sync** (background): new/unsynced sets, a daily re-check (released in the
+  last 90 days or missing images; recent placeholder sets re-topped-up weekly; unpriced
+  cards re-checked weekly), then the variant top-up.
+- **Variants:** `cards.variants` = `mergeVariants(flags, price keys, manual, in-use)`.
+  The top-up reads REST TCGplayer price keys (incl. legacy `reverse`/`holo`) for the
+  44 placeholder-flag sets and discards prices (D19). Owned/placed variants are never
+  dropped. Long-press a checklist row → Add variant (stored in `manual_variants`, no
+  sync touches it); Remove is refused while owned or placed.
+- **Removed:** per-card REST from checklist, picker and import (`ensureSetCards`),
+  checklist prices, `mapCardDetail` / `mapCardBrief`. Stats keep REST prices via
+  `applyRestDetails(storePrices: true)`, which never rewrites card metadata.
+- **Placeholder:** `CardFace` shows name + #number when an image is missing or fails.
+- **Progress:** `useSyncStore` + `SyncStatusLine` (binder list, checklist sets,
+  checklist) and `[catalogue]` lines in the Metro log (dev; failures always warn).
+- **Migration 0005:** adds `illustrator`, `flag_variants`, `price_variants`,
+  `price_checked_at`, `manual_variants`, `placeholder_flags`, `variants_checked_at`;
+  clears every set's `cards_ingested_at` (re-download). No user data touched. Check:
+  `bash scripts/verify-migration-0005.sh <scratch-dir>`.
+- **Decisions taken in the plan:** set rows stay on REST (GraphQL sets have no
+  `abbreviation`, needed for CSV set codes); `cards_ingested_at` reused as the sync
+  marker; raw flags stored; recent placeholder sets re-topped-up weekly, not daily; no
+  monthly back-off for never-priced sets; GraphQL filter variable is `ID!`.
+- **Review fixes (2026-11-23):** real transactions (drizzle's expo-sqlite
+  `transaction` is sync: writes now use `.all()`/`.run()` in sync callbacks),
+  15 s REST timeout, settled set/card fetches, hostile-key and field
+  sanitising, Android-safe variant sheet.
+- **Simulator check (2026-11-23):** items 2–10 pass; item 1 (offline first
+  launch) not tested yet, re-test before merge. Images take a few seconds on
+  first view (lazy). Onboarding showed "30+ sets couldn't download": the
+  Simulator lost its connection for ~1 min mid-download (log: 4 timeouts then
+  "Network request failed"), plus 4 sets TCGdex lists but has no cards for
+  (`jumbo`, `rc`, `sp`, `wp`). All others synced on the next start.
+- **Follow-ups from that check:** incomplete sets (local cards < cardCount.total)
+  are stored as synced, noted in the checklist and re-checked daily; empty
+  synced sets are hidden from set lists; 3 network failures in a row skip the
+  rest ("Connection lost") and other failures get one automatic retry;
+  "Continue with N sets" when some are downloaded; checklist ↻ greys out with
+  "Syncing this set in the background…" while the set is busy; onboarding
+  sets the re-check timestamp; dead code removed.
+- Remaining low-risk items: docs/idea.md Backlog → "Deferred minors".
+- **Re-test (2026-11-25):** offline first launch and a mid-download drop both
+  show the expected errors and recover on retry; the `mfb` "34 of 48" note
+  shows. The 4 empty sets are hidden as intended (Radiant Collection's cards
+  live in `bw11` and `g1`).
+- NEEDS: phone check (starts onboarding there), in the step 8 device pass.
+
+## Roadmap step 1: cleanup + quick fixes (2026-11-22) — DONE, merged 2026-11-23 (PR #1)
 
 Spec: docs/superpowers/specs/2026-11-22-step1-cleanup-design.md. Plan:
 docs/superpowers/plans/2026-11-22-step1-cleanup.md. Cut code is
@@ -32,9 +86,15 @@ restorable from `189daaa` (D20).
   `collapsable={false}` keeps the native view. Failures now alert with
   the stage (capture / share) and the error. Verified on the Simulator:
   the share sheet opens with a PNG of the visible page (page 2).
-- NEEDS SIMULATOR CHECK, then phone: app starts empty, no Pocket sets,
-  packed Pokédex/master-set organize with no prompt, no merge or
-  custom-image menu items.
+- **Review follow-ups:** an empty Pocket lookup counts as an error (no
+  sync); the Pocket series and set list are fetched in parallel; set
+  details that don't name a non-Pocket series are skipped (fail closed);
+  edge-case tests for packed sorts, variant stacking and the lookup.
+- **Verified:** 156 Jest tests, `tsc`, lint, iOS bundle export and
+  `verify-migration-0004.sh` pass. Full Simulator check passed before
+  merge: app starts empty, no Pocket sets, packed Pokédex/master-set
+  organize with no prompt, no merge or custom-image menu items, PNG
+  export. Not yet opened on the phone (it will start empty; intended).
 
 ## M4 test feedback round (2026-07-13) — all addressed
 
@@ -445,24 +505,22 @@ price TTL re-pull full payloads once upstream syncs. Alternatives
 (official TCGplayer API = partner approval; third-party price APIs =
 paid) deliberately not pursued in MVP; user informed.
 
-## Open items / blockers
+## Open items / blockers (refreshed 2026-11-23 against docs/idea.md)
 
-- **Feedback fixes not yet device-tested.** Suggested pass: merge in all
-  four directions incl. from a region's edges; toggle stacking both ways
-  with duplicates present; drag same card onto same card with stacking
-  on; organize by master-set/pokédex (gaps + confirm dialog + back to
-  page 1) and colour/rarity (page per category); checklist variant rows;
-  picker long-press variant menu.
-- pkmnbindr/Collectr CSV formats are reconstructions — ask user for real
-  export files to lock signatures and fixtures.
-- Merging pockets that already hold cards hides non-anchor contents (the
-  region shows the anchor's face); contents remain in the DB. Merge is
-  intended for aesthetic regions. Candidate refinement: block merging
-  over filled pockets or auto-relocate their cards.
-- Import + variant stacking merges only within the import batch; it does
-  not stack onto pockets already in the binder (documented MVP cut).
-- Pokédex gaps span the owned dex range only (not the full national dex);
-  extra prints of one species shift later gap positions by design.
-- `pagesRef`/`currentPageRef` pattern assumes page list doesn't shrink
-  mid-drag; page deletion still unbuilt, so safe.
+- Low-risk deferred review items from steps 1 and 2: docs/idea.md Backlog →
+  "Deferred minors".
+
+- Real CSV exports from Collectr, TCGplayer and pkmnbindr are needed by
+  roadmap step 4 (D6).
+- Import + variant stacking stacks only within the import batch, not onto
+  pockets already in the binder; D7 fixes this in step 4.
+- Settled 2026-11-23: sets with no release date sort last in master-set;
+  `planFromSequence` needs no guard (callers always add pages first).
+- `pagesRef`/`currentPageRef` assume the page list doesn't shrink
+  mid-drag; revisit when page deletion (D4) lands in step 7.
+- `app.json` bundle id is still `com.anonymous.pokebinder`; change before
+  any store release (D13).
+- README Demo / "What I learned" TODOs and the LICENSE decision (D16).
 - No API keys needed: TCGdex and frankfurter.dev are both keyless.
+- (Merge-pocket and Pokédex-gaps items removed: both features were cut in
+  step 1, D20.)

@@ -1,13 +1,17 @@
-import { and, asc, desc, eq, like, sql } from 'drizzle-orm';
+import { and, asc, eq, like, sql } from 'drizzle-orm';
 
 import { likePattern } from '../lib/search';
 import type { Db } from './client';
 import { cards, sets } from './schema';
-import type { CardRow, SetRow } from './schema';
+import type { CardRow } from './schema';
 
-export async function listSets(db: Db): Promise<SetRow[]> {
-  return db.select().from(sets).orderBy(desc(sets.releaseDate));
-}
+/**
+ * Hides sets that synced with no cards: TCGdex lists a few (e.g. Jumbo
+ * cards) that have no card data at all. Sets not downloaded yet stay.
+ */
+export const browsableSet = sql`NOT (${sets.cardsIngestedAt} IS NOT NULL AND NOT EXISTS (
+  SELECT 1 FROM ${cards} WHERE ${cards.setId} = ${sets.id}))`;
+
 
 /**
  * Card numbers are text ("025a", "TG12"); numeric-first ordering matches

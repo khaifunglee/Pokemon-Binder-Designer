@@ -5,10 +5,19 @@ const BASE_URL = 'https://api.tcgdex.net/v2/en';
 /** TCGdex asks for considerate use; keep parallelism modest. */
 const CONCURRENCY = 6;
 
+/** RN fetch has no reliable default timeout; a stalled request must fail. */
+const TIMEOUT_MS = 15_000;
+
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`);
-  if (!res.ok) throw new Error(`TCGdex ${path} failed: ${res.status}`);
-  return (await res.json()) as T;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  try {
+    const res = await fetch(`${BASE_URL}${path}`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`TCGdex ${path} failed: ${res.status}`);
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export function fetchSetBriefs(): Promise<DexSetBrief[]> {
@@ -74,9 +83,75 @@ export function fetchCardDetails(
   return pooledFetch(cardIds, fetchCardDetail, onProgress);
 }
 
-export function fetchSetDetails(
-  setIds: string[],
+/**
+ * Like pooledFetch, but one failure doesn't stop the rest: onboarding
+ * keeps every set that downloads and retries only the ones that didn't.
+ */
+export async function pooledSettled<T, R>(
+  items: T[],
+  worker: (item: T) => Promise<R>,
+  concurrency: number,
   onProgress?: (done: number, total: number) => void,
-): Promise<DexSetDetail[]> {
-  return pooledFetch(setIds, fetchSetDetail, onProgress);
+): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  let done = 0;
+
+  const run = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        results[index] = { status: 'fulfilled', value: await worker(items[index]) };
+      } catch (reason) {
+        results[index] = { status: 'rejected', reason };
+      }
+      done++;
+      onProgress?.(done, items.length);
+    }
+  };
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, items.length) }, () => run()),
+  );
+  return results;
+}
+
+export interface SettledDetails<T> {
+  details: T[];
+  failedIds: string[];
+}
+
+function splitSettled<T>(ids: string[], results: PromiseSettledResult<T>[]): SettledDetails<T> {
+  const out: SettledDetails<T> = { details: [], failedIds: [] };
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') out.details.push(r.value);
+    else out.failedIds.push(ids[i]);
+  });
+  return out;
+}
+
+/** Set details; one bad set no longer fails the whole listing. */
+export async function fetchSetDetailsSettled(setIds: string[]): Promise<SettledDetails<DexSetDetail>> {
+  return splitSettled(setIds, await pooledSettled(setIds, fetchSetDetail, CONCURRENCY));
+}
+
+/**
+ * Card details; failures are returned by id. A detail whose id isn't the
+ * one requested counts as failed, so it can't overwrite another card.
+ */
+export async function fetchCardDetailsSettled(
+  cardIds: string[],
+  onProgress?: (done: number, total: number) => void,
+): Promise<SettledDetails<DexCardDetail>> {
+  const results = await pooledSettled(
+    cardIds,
+    async (id) => {
+      const detail = await fetchCardDetail(id);
+      if (detail?.id !== id) throw new Error(`TCGdex card ${id} answered as ${String(detail?.id)}`);
+      return detail;
+    },
+    CONCURRENCY,
+    onProgress,
+  );
+  return splitSettled(cardIds, results);
 }

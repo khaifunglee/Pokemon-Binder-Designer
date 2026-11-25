@@ -16,6 +16,7 @@ import type { BinderRow } from '../../db/schema';
 import { layoutSpec } from '../../lib/binder/layout';
 import { BinderFormModal } from './BinderFormModal';
 import { STRATEGY_LABELS } from './strategyLabels';
+import { SyncStatusLine } from '../catalogue/SyncStatusLine';
 
 export function BinderListScreen() {
   const navigation = useNavigation();
@@ -86,6 +87,7 @@ export function BinderListScreen() {
 
   return (
     <View style={styles.container}>
+      <SyncStatusLine />
       <FlatList
         data={data ?? []}
         keyExtractor={(b) => b.id}

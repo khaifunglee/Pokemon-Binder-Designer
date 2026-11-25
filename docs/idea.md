@@ -151,6 +151,8 @@ The per-set **checklist** screen and a set template binder are two views of the 
   - **New sets** are picked up by the same sync at app start.
   - **Images** stay lazy (expo-image disk cache).
   - **Why not the current approach:** fetching card details one at a time over REST would take about 67 minutes for the whole catalogue.
+  - **Variants (2026-11-23, built in step 2):** 44 sets (4,396 cards, every main XY and most Sun & Moon sets) have normal-only placeholder flags, but REST TCGplayer price keys list the real variants. **User choice B:** a one-time background top-up reads them after onboarding. About 24% of flagged-set cards have no TCGplayer prices at all (promos like `xyp`, `mfb`, plus ~6% scattered in main sets). **User choice 1 + 3:** keep the flags and re-check those cards weekly (nothing is inferred), and let the user add a missing variant by hand from the checklist.
+  - **Freshness:** a daily background re-check re-syncs sets released in the last 90 days or still missing images, since new sets (e.g. Delta Reign) arrive half-finished.
 - **D19. Prices only where they're shown.**
   - GraphQL has no pricing, so prices still use REST per card with the 24h TTL.
   - Fetch them **only when a template binder's stats are opened**, for that binder's cards.
@@ -224,6 +226,34 @@ Each step gets its own plan → approval → tested commits.
 8. AI binder and theme recommendations (Phase 2).
 9. *Food for thought:* **cameo cards** (a Pokémon appearing on a card labelled as another).
    No data source has this, so it would need a hand-curated list.
+10. **A source for missing card images** (added 2026-11-23). About 8% of cards (1,763) have
+    no TCGdex image and show the name/number placeholder. Checked 2026-11-23: the
+    pokemontcg.io image CDN still serves older sets TCGdex lacks (e.g. `sm35` Shining
+    Legends, `sm75` Dragon Majesty, `swsh45sv` Shiny Vault, `swsh12pt5gg`, `ecard2`) but
+    returns 404 for the Mega era (`me2pt5`, `me3`, `me6` Delta Reign), and its API returned
+    502. A fallback would need a TCGdex → pokemontcg.io set/number map
+    (`sm3.5` → `sm35`, `swsh4.5sv` → `swsh45sv`, …). Recent sets still need another source.
+11. **Variant menu: show in-use manual variants as greyed, not removable** (alternative to
+    today's "Remove" that explains it's in use). E.g. "Reverse Holo (added by you, in use)".
+
+### Deferred minors (low risk, from reviews)
+
+From roadmap step 1 (both settled 2026-11-23: undated sets now sort **last** in
+master-set; `planFromSequence` can't run out of room because callers always add pages
+first, so no guard):
+- Older services use `db.transaction(async …)`, which drizzle's expo-sqlite driver commits
+  before the awaited queries run, so their multi-step writes aren't atomic: `binders`,
+  `organize`, `slots`, `collectionService`, `importService`, `stackingService`,
+  `ratesService`. Found in the step 2 review; step 2's own write paths are fixed.
+
+From roadmap step 2 (2026-11-23):
+- "Price keys beat bare-normal flags" applies to any card, not only placeholder-flag sets.
+- Cards cached before migration 0005 whose set never re-synced lose REST-derived
+  variants on a manual add (moot once onboarding has run).
+- No named `me06-001` test in `mergeVariants`.
+- No response-size cap before `res.json()` (TCGdex responses are ≤ ~300 KB per set today).
+- Upstream GraphQL error text is logged untruncated.
+- In-use variants read/write can still race against the older async services above.
 
 ---
 

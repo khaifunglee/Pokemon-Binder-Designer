@@ -7,7 +7,6 @@ import { addPages, touchBinder } from './binders';
 import { listSetCards } from './cards';
 import type { Db } from './client';
 import { addOwned } from './collectionService';
-import { ensureSetCards } from './ingest';
 import { layoutSpec } from '../lib/binder/layout';
 import { binders, pages, sets, slots } from './schema';
 
@@ -61,12 +60,6 @@ export async function resolveImport(
   }
 
   for (const [setId, setRows] of rowsBySet) {
-    try {
-      await ensureSetCards(db, setId);
-    } catch {
-      // Offline and not previously downloaded → match against whatever
-      // is local; an empty list turns every row into a problem below.
-    }
     const cardRefs: CardRef[] = (await listSetCards(db, setId)).map((c) => ({
       id: c.id,
       name: c.name,
@@ -78,7 +71,7 @@ export async function resolveImport(
       if (cardRefs.length === 0) {
         problems.push({
           line: row.line,
-          detail: `set "${setId}" not downloaded — connect to the internet and retry`,
+          detail: `set not downloaded yet: ${allSets.find((s) => s.id === setId)?.name ?? setId}`,
         });
         continue;
       }

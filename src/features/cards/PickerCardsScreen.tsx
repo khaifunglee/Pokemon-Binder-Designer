@@ -1,5 +1,4 @@
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Image } from 'expo-image';
 import { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -14,10 +13,9 @@ import {
 
 import { listSetCards } from '../../db/cards';
 import { db } from '../../db/client';
-import { ensureSetCards } from '../../db/ingest';
 import type { CardRow } from '../../db/schema';
 import type { RootStackParamList } from '../../navigation/types';
-import { CARD_IMAGE_CACHE_POLICY } from './images';
+import { CardFace } from './CardFace';
 import { placeIntoSlot } from './placement';
 import { variantLabel } from './variantLabels';
 
@@ -35,17 +33,12 @@ export function PickerCardsScreen({ route, navigation }: Props) {
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      try {
-        await ensureSetCards(db, setId);
-      } catch {
-        // Offline: fall through — the set may already be in SQLite.
-      }
       const rows = await listSetCards(db, setId);
       if (cancelled) return;
       setCards(rows);
       setLoading(false);
       if (rows.length === 0) {
-        setError('This set needs to be downloaded once — connect to the internet and retry.');
+        setError("This set hasn't downloaded yet. It will retry next time the app starts.");
       }
     })();
     return () => {
@@ -104,11 +97,12 @@ export function PickerCardsScreen({ route, navigation }: Props) {
             );
           }}
         >
-          <Image
-            source={{ uri: item.imageSmallUri ?? undefined }}
+          <CardFace
+            name={item.name}
+            number={item.number}
+            imageUri={item.imageSmallUri ?? item.imageLargeUri}
             style={[styles.card, { width: cardWidth, height: cardWidth / (63 / 88) }]}
             contentFit="contain"
-            cachePolicy={CARD_IMAGE_CACHE_POLICY}
             transition={100}
           />
           <Text style={styles.caption} numberOfLines={1}>

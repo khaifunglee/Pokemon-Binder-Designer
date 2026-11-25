@@ -199,8 +199,8 @@ describe('buildSequence — edge cases', () => {
       entry('s2', 'undated', { setId: 'promo', setReleaseDate: '' }),
     ];
     const seq = ids(buildSequence(entries, 'master-set', ctx()));
-    // Undated sorts first (empty string), but still cannot share a page with sv1.
-    expect(seq).toEqual(['undated', null, null, null, 'dated']);
+    // Undated sorts last (user decision 2026-11-23), still on its own page.
+    expect(seq).toEqual(['dated', null, null, null, 'undated']);
   });
 
   it('separates two undated sets by set id', () => {

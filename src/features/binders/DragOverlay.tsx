@@ -1,4 +1,3 @@
-import { Image } from 'expo-image';
 import { StyleSheet } from 'react-native';
 import Animated, {
   useAnimatedStyle,
@@ -6,10 +5,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import type { SharedValue } from 'react-native-reanimated';
 
-import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { CardFace } from '../cards/CardFace';
 
 interface Props {
   imageUri: string | null;
+  name: string | null;
+  number: string | null;
   width: number;
   height: number;
   dragX: SharedValue<number>;
@@ -21,7 +22,7 @@ interface Props {
  * The single floating card that follows the finger during a drag.
  * Position/scale run entirely on the UI thread via shared values.
  */
-export function DragOverlay({ imageUri, width, height, dragX, dragY, active }: Props) {
+export function DragOverlay({ imageUri, name, number, width, height, dragX, dragY, active }: Props) {
   const style = useAnimatedStyle(() => ({
     opacity: active.value,
     transform: [
@@ -36,11 +37,12 @@ export function DragOverlay({ imageUri, width, height, dragX, dragY, active }: P
       pointerEvents="none"
       style={[styles.overlay, { width, height }, style]}
     >
-      <Image
-        source={{ uri: imageUri ?? undefined }}
+      <CardFace
+        name={name}
+        number={number}
+        imageUri={imageUri}
         style={styles.image}
         contentFit="cover"
-        cachePolicy={CARD_IMAGE_CACHE_POLICY}
       />
     </Animated.View>
   );

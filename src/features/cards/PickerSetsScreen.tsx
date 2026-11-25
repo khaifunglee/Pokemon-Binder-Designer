@@ -13,7 +13,7 @@ import {
   View,
 } from 'react-native';
 
-import { searchCards } from '../../db/cards';
+import { browsableSet, searchCards } from '../../db/cards';
 import { db } from '../../db/client';
 import { sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
@@ -28,7 +28,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'PickerSets'>;
 export function PickerSetsScreen({ route, navigation }: Props) {
   const { binderId, slotId } = route.params;
   const { data: setRows } = useLiveQuery(
-    db.select().from(sets).orderBy(desc(sets.releaseDate)),
+    db.select().from(sets).where(browsableSet).orderBy(desc(sets.releaseDate)),
   );
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CardRow[]>([]);

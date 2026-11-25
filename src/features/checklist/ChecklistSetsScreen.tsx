@@ -5,14 +5,16 @@ import { Image } from 'expo-image';
 import { useMemo } from 'react';
 import { FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { browsableSet } from '../../db/cards';
 import { db } from '../../db/client';
 import { cards, collection, sets } from '../../db/schema';
+import { SyncStatusLine } from '../catalogue/SyncStatusLine';
 import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
 
 export function ChecklistSetsScreen() {
   const navigation = useNavigation();
   const { data: setRows } = useLiveQuery(
-    db.select().from(sets).orderBy(desc(sets.releaseDate)),
+    db.select().from(sets).where(browsableSet).orderBy(desc(sets.releaseDate)),
   );
   // Distinct owned cards per set (any variant counts as owned once).
   const { data: ownedRows } = useLiveQuery(
@@ -32,45 +34,49 @@ export function ChecklistSetsScreen() {
   );
 
   return (
-    <FlatList
-      style={styles.list}
-      data={setRows ?? []}
-      keyExtractor={(s) => s.id}
-      renderItem={({ item }) => {
-        const owned = ownedBySet.get(item.id) ?? 0;
-        return (
-          <Pressable
-            style={styles.row}
-            onPress={() => navigation.navigate('Checklist', { setId: item.id })}
-          >
-            <Image
-              source={{ uri: item.symbolUri ?? undefined }}
-              style={styles.symbol}
-              contentFit="contain"
-              cachePolicy={CARD_IMAGE_CACHE_POLICY}
-            />
-            <View style={styles.rowText}>
-              <Text style={styles.rowTitle}>{item.name}</Text>
-              <Text style={styles.rowSub}>
-                {item.series} · {owned}/{item.total} owned
-              </Text>
-            </View>
-            <View style={styles.progressTrack}>
-              <View
-                style={[
-                  styles.progressFill,
-                  { width: `${Math.min(100, (owned / Math.max(1, item.total)) * 100)}%` },
-                ]}
+    <View style={styles.screen}>
+      <SyncStatusLine />
+      <FlatList
+        style={styles.list}
+        data={setRows ?? []}
+        keyExtractor={(s) => s.id}
+        renderItem={({ item }) => {
+          const owned = ownedBySet.get(item.id) ?? 0;
+          return (
+            <Pressable
+              style={styles.row}
+              onPress={() => navigation.navigate('Checklist', { setId: item.id })}
+            >
+              <Image
+                source={{ uri: item.symbolUri ?? undefined }}
+                style={styles.symbol}
+                contentFit="contain"
+                cachePolicy={CARD_IMAGE_CACHE_POLICY}
               />
-            </View>
-          </Pressable>
-        );
-      }}
-    />
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>{item.name}</Text>
+                <Text style={styles.rowSub}>
+                  {item.series} · {owned}/{item.total} owned
+                </Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: `${Math.min(100, (owned / Math.max(1, item.total)) * 100)}%` },
+                  ]}
+                />
+              </View>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#fff' },
   list: { backgroundColor: '#fff' },
   row: {
     flexDirection: 'row',

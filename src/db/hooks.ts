@@ -1,22 +1,43 @@
 import { useMigrations } from 'drizzle-orm/expo-sqlite/migrator';
-import { useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import migrations from '../../drizzle/migrations';
+import { isOnboarded, runStartupSync, runVariantTopUp } from './catalogueSync';
 import { db } from './client';
-import { ingestSets } from './ingest';
 
 /**
- * Startup gate: schema migrations, then a background catalogue refresh.
- * The UI never waits on the network; offline, the refresh just fails
- * quietly and the app serves whatever SQLite already has.
+ * Startup gate: schema migrations, then either first-launch onboarding
+ * (the catalogue download) or a background refresh. After onboarding the
+ * UI never waits on the network.
  */
-export function useDbReady(): { ready: boolean; error: Error | null } {
+export function useDbReady(): {
+  ready: boolean;
+  error: Error | null;
+  /** null until known; false shows the onboarding screen. */
+  onboarded: boolean | null;
+  finishOnboarding: () => void;
+} {
   const { success, error } = useMigrations(db, migrations);
+  const [onboarded, setOnboarded] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!success) return;
-    ingestSets(db).catch(() => {});
+    let cancelled = false;
+    void isOnboarded(db).then((done) => {
+      if (cancelled) return;
+      setOnboarded(done);
+      if (done) void runStartupSync(db);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [success]);
 
-  return { ready: success, error: error ?? null };
+  const finishOnboarding = useCallback(() => {
+    setOnboarded(true);
+    // Onboarding just synced every set; only the variant top-up remains.
+    void runVariantTopUp(db);
+  }, []);
+
+  return { ready: success, error: error ?? null, onboarded, finishOnboarding };
 }

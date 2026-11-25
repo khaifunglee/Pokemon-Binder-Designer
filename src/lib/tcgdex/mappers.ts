@@ -1,5 +1,5 @@
 import type { CardInsert, SetInsert } from '../../db/schema';
-import type { DexCardBrief, DexCardDetail, DexSetDetail } from './types';
+import type { DexCardDetail, DexSetDetail, GqlCard } from './types';
 
 /**
  * Our variant vocabulary (kept from the original tcgplayer price keys so
@@ -15,17 +15,43 @@ export const KNOWN_VARIANTS = [
   'unlimitedHolofoil',
 ] as const;
 
-/** TCGdex tcgplayer pricing keys (hyphenated) → our variant keys. */
-const PRICE_KEY_MAP: Record<string, string> = {
+/**
+ * TCGdex tcgplayer pricing keys → our variant keys. Live payloads use the
+ * hyphenated names; older ones used `reverse` / `holo` (e.g. swsh3-136 in
+ * 2025-08), so both spellings map.
+ */
+export const PRICE_KEY_MAP: Record<string, string> = {
   normal: 'normal',
   holofoil: 'holofoil',
+  holo: 'holofoil',
   'reverse-holofoil': 'reverseHolofoil',
+  reverse: 'reverseHolofoil',
   '1st-edition': '1stEditionNormal',
   '1st-edition-normal': '1stEditionNormal',
   '1st-edition-holofoil': '1stEditionHolofoil',
   unlimited: 'unlimited',
   'unlimited-holofoil': 'unlimitedHolofoil',
 };
+
+/**
+ * Variant for a TCGplayer price key. Own keys only: API data is untrusted,
+ * and a plain-object lookup would return prototype members for keys like
+ * `__proto__` or `constructor`.
+ */
+export function priceKeyVariant(key: string): string | undefined {
+  return Object.prototype.hasOwnProperty.call(PRICE_KEY_MAP, key) ? PRICE_KEY_MAP[key] : undefined;
+}
+
+/** Dedupe, then canonical order; unknown variants last, alphabetically. */
+export function sortVariants(variants: Iterable<string>): string[] {
+  const rank = (v: string): number => {
+    const index = KNOWN_VARIANTS.indexOf(v as (typeof KNOWN_VARIANTS)[number]);
+    return index === -1 ? KNOWN_VARIANTS.length : index;
+  };
+  return [...new Set(variants)]
+    .filter((v): v is string => typeof v === 'string')
+    .sort((a, b) => rank(a) - rank(b) || a.localeCompare(b));
+}
 
 /** Image asset bases need a quality/extension suffix. */
 export function cardImageUris(base: string | undefined): {
@@ -70,8 +96,15 @@ export function mapSetDetail(set: DexSetDetail): SetInsert {
   };
 }
 
-export function mapCardDetail(card: DexCardDetail): CardInsert {
-  const images = cardImageUris(card.image);
+/**
+ * A GraphQL card → our card row. `variants` starts as the flags; the sync
+ * re-merges it with stored price and manual variants before writing.
+ */
+export function mapGraphqlCard(
+  card: GqlCard,
+): CardInsert & { flagVariants: string[]; illustrator: string | null } {
+  const images = cardImageUris(card.image ?? undefined);
+  const flagVariants = deriveVariants({ variants: card.variants ?? undefined });
   return {
     id: card.id,
     name: card.name,
@@ -81,30 +114,11 @@ export function mapCardDetail(card: DexCardDetail): CardInsert {
     supertype: mapCategory(card.category),
     types: card.types ?? [],
     nationalPokedexNumbers: card.dexId ?? [],
+    illustrator: card.illustrator ?? null,
     imageSmallUri: images.small,
     imageLargeUri: images.large,
-    variants: deriveVariants(card),
-  };
-}
-
-/**
- * Placeholder card row from a set-detail brief — enough for slots and
- * collections to reference (FK) until the full detail is ingested.
- */
-export function mapCardBrief(brief: DexCardBrief, setId: string): CardInsert {
-  const images = cardImageUris(brief.image);
-  return {
-    id: brief.id,
-    name: brief.name,
-    setId,
-    number: brief.localId,
-    rarity: null,
-    supertype: '',
-    types: [],
-    nationalPokedexNumbers: [],
-    imageSmallUri: images.small,
-    imageLargeUri: images.large,
-    variants: [],
+    variants: flagVariants,
+    flagVariants,
   };
 }
 
@@ -119,7 +133,7 @@ export function extractPrices(card: Pick<DexCardDetail, 'pricing'>): ExtractedPr
   if (!block) return [];
   const out: ExtractedPrice[] = [];
   for (const [key, entry] of Object.entries(block)) {
-    const variant = PRICE_KEY_MAP[key];
+    const variant = priceKeyVariant(key);
     if (!variant || entry == null || typeof entry !== 'object') continue;
     const value = entry.marketPrice ?? entry.midPrice ?? entry.lowPrice;
     if (value != null && value > 0) out.push({ variant, marketUsd: value });

@@ -2,8 +2,7 @@ import {
   cardImageUris,
   deriveVariants,
   extractPrices,
-  mapCardBrief,
-  mapCardDetail,
+  mapGraphqlCard,
   mapSetDetail,
 } from '../mappers';
 import type { DexCardDetail, DexSetDetail } from '../types';
@@ -92,39 +91,47 @@ describe('deriveVariants', () => {
   });
 });
 
-describe('mapCardDetail', () => {
-  it('maps to our cards row with é-supertype and image suffixes', () => {
-    expect(mapCardDetail(cardDetail)).toEqual({
-      id: 'me04-003',
-      name: 'Beedrill ex',
-      setId: 'me04',
-      number: '003',
-      rarity: 'Double rare',
+describe('mapGraphqlCard', () => {
+  it('maps a Delta Reign card with no image or dex ids (me06-001, 2026-11-23)', () => {
+    expect(
+      mapGraphqlCard({
+        id: 'me06-001',
+        localId: '001',
+        name: 'Heracross',
+        rarity: 'Common',
+        category: 'Pokemon',
+        types: ['Grass'],
+        dexId: null,
+        illustrator: 'Satoshi Ito',
+        image: null,
+        set: { id: 'me06' },
+        variants: { normal: true, reverse: false, holo: false, firstEdition: false },
+      }),
+    ).toEqual({
+      id: 'me06-001',
+      name: 'Heracross',
+      setId: 'me06',
+      number: '001',
+      rarity: 'Common',
       supertype: 'Pokémon',
       types: ['Grass'],
-      nationalPokedexNumbers: [15],
-      imageSmallUri: 'https://assets.tcgdex.net/en/me/me04/003/low.webp',
-      imageLargeUri: 'https://assets.tcgdex.net/en/me/me04/003/high.webp',
-      variants: ['holofoil'],
-    });
-  });
-});
-
-describe('mapCardBrief', () => {
-  it('builds a placeholder row good enough for FK references', () => {
-    const row = mapCardBrief(setDetail.cards[0], 'me04');
-    expect(row).toMatchObject({
-      id: 'me04-003',
-      setId: 'me04',
-      number: '003',
-      name: 'Beedrill ex',
-      variants: [],
-      supertype: '',
+      nationalPokedexNumbers: [],
+      illustrator: 'Satoshi Ito',
+      imageSmallUri: null,
+      imageLargeUri: null,
+      variants: ['normal'],
+      flagVariants: ['normal'],
     });
   });
 });
 
 describe('extractPrices', () => {
+  it('maps the legacy short "reverse" key', () => {
+    expect(
+      extractPrices({ pricing: { tcgplayer: { reverse: { marketPrice: 0.23 } } } }),
+    ).toEqual([{ variant: 'reverseHolofoil', marketUsd: 0.23 }]);
+  });
+
   it('maps hyphenated pricing keys with market→mid→low fallback', () => {
     expect(
       extractPrices({

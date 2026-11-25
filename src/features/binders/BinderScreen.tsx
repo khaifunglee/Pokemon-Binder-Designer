@@ -620,6 +620,8 @@ export function BinderScreen({ route, navigation }: Props) {
       {dragging && (
         <DragOverlay
           imageUri={dragging.imageSmallUri ?? dragging.imageLargeUri}
+          name={dragging.cardName}
+          number={dragging.cardNumber}
           width={pocketWidth}
           height={pocketHeight}
           dragX={dragX}

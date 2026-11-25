@@ -1,4 +1,9 @@
-import { fetchSeriesSetIds } from '../api';
+import {
+  fetchCardDetailsSettled,
+  fetchSeriesSetIds,
+  fetchSetDetailsSettled,
+  pooledSettled,
+} from '../api';
 import { POCKET_SERIES_ID } from '../filter';
 import type { DexSetBrief } from '../types';
 
@@ -16,7 +21,7 @@ describe('fetchSeriesSetIds', () => {
       json: async () => ({ id: 'tcgp', name: 'Pokémon TCG Pocket', sets: [brief('A1'), brief('P-A')] }),
     }) as jest.Mock;
     await expect(fetchSeriesSetIds('tcgp')).resolves.toEqual(['A1', 'P-A']);
-    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/tcgp');
+    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/tcgp', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('throws when the lookup fails, so the sync stops instead of ingesting unfiltered', async () => {
@@ -92,12 +97,93 @@ describe('fetchSeriesSetIds — malformed and failed lookups', () => {
   it('URL-encodes the series id', async () => {
     respondWith({ id: 'x', sets: [brief('A1')] });
     await fetchSeriesSetIds('a/b c');
-    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/a%2Fb%20c');
+    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/a%2Fb%20c', expect.objectContaining({ signal: expect.anything() }));
   });
 
   it('looks up the TCG Pocket series by its TCGdex id', async () => {
     respondWith({ id: 'tcgp', sets: [brief('A1')] });
     await fetchSeriesSetIds(POCKET_SERIES_ID);
-    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/tcgp');
+    expect(global.fetch).toHaveBeenCalledWith('https://api.tcgdex.net/v2/en/series/tcgp', expect.objectContaining({ signal: expect.anything() }));
+  });
+});
+
+describe('pooledSettled', () => {
+  it('keeps going past failures and preserves input order', async () => {
+    const results = await pooledSettled(
+      [1, 2, 3],
+      async (n) => {
+        if (n === 2) throw new Error('boom');
+        return n * 10;
+      },
+      2,
+    );
+    expect(results.map((r) => r.status)).toEqual(['fulfilled', 'rejected', 'fulfilled']);
+    expect(results[0]).toEqual({ status: 'fulfilled', value: 10 });
+  });
+
+  it('never runs more workers at once than the concurrency', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    await pooledSettled(
+      [1, 2, 3, 4, 5],
+      async () => {
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        inFlight--;
+      },
+      2,
+    );
+    expect(peak).toBe(2);
+  });
+
+  it('reports progress after each item', async () => {
+    const onProgress = jest.fn();
+    await pooledSettled([1, 2], async () => undefined, 4, onProgress);
+    expect(onProgress).toHaveBeenLastCalledWith(2, 2);
+  });
+});
+
+describe('REST timeout', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('aborts a stalled request after 15 s', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn(
+      (_url: string, init?: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          });
+        }),
+    ) as unknown as typeof fetch;
+    const pending = fetchSeriesSetIds('tcgp');
+    jest.advanceTimersByTime(15_000);
+    await expect(pending).rejects.toThrow('aborted');
+  });
+});
+
+describe('fetchSetDetailsSettled / fetchCardDetailsSettled', () => {
+  it('returns what succeeded and the ids that failed', async () => {
+    global.fetch = jest.fn(async (url: string) =>
+      url.endsWith('/sets/bad')
+        ? { ok: false, status: 500 }
+        : { ok: true, json: async () => ({ id: url.split('/').pop() }) },
+    ) as unknown as typeof fetch;
+    const sets = await fetchSetDetailsSettled(['a', 'bad', 'b']);
+    expect(sets.details.map((d) => d.id)).toEqual(['a', 'b']);
+    expect(sets.failedIds).toEqual(['bad']);
+  });
+
+  it('rejects a card detail whose id is not the one requested', async () => {
+    global.fetch = jest.fn(async () => ({
+      ok: true,
+      json: async () => ({ id: 'other-001' }),
+    })) as unknown as typeof fetch;
+    const result = await fetchCardDetailsSettled(['sm1-1']);
+    expect(result.details).toEqual([]);
+    expect(result.failedIds).toEqual(['sm1-1']);
   });
 });

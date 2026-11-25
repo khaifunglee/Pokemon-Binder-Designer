@@ -35,7 +35,7 @@ There is no backend, no accounts, and no sync. Everything lives in on-device SQL
 | Canvas animation | `@shopify/react-native-skia` 2.2 | Page-turn and shuffle overlays (fixed-cost sprites). The sleeve slide-in is Reanimated-only |
 | State | Zustand | Only for transient cross-screen UI signals (`src/state/uiStore.ts`). Persistent state is SQLite |
 | Database | `expo-sqlite` + Drizzle ORM 0.45, drizzle-kit for migrations | WAL mode, FK on, change listener drives live queries |
-| Card data + prices | **TCGdex** (`api.tcgdex.net/v2/en`), free, no key | Migrated from pokemontcg.io in M5. CLAUDE.md still names pokemontcg.io |
+| Card data + prices | **TCGdex**, free, no key | Card metadata over GraphQL (`/v2/graphql`), set list and prices over REST (`/v2/en`). Migrated from pokemontcg.io in M5 |
 | FX rates | frankfurter.dev (ECB), no key | 24h TTL cache |
 | Other Expo modules | expo-image (disk cache), expo-file-system (legacy API), expo-document-picker, expo-image-picker, expo-haptics, expo-sharing, expo-crypto; react-native-view-shot | |
 | Tests | Jest 29 via `jest-expo` preset | Pure-logic tests only |
@@ -52,8 +52,12 @@ src/
   db/                   SQLite access layer + app services (impure, async, take a Db)
     schema.ts           Drizzle tables (source of truth for the data model)
     client.ts           Opens pokebinder.db, WAL + foreign keys, exports `db`
-    hooks.ts            useDbReady: migrations → bg catalog refresh
-    ingest.ts           Sets catalog + per-set card/price ingestion from TCGdex (no TCG Pocket)
+    hooks.ts            useDbReady: migrations → onboarding gate or background sync
+    ingest.ts           Sets catalog (REST, no TCG Pocket), REST price/variant writes, stats prices
+    catalogueSync.ts    GraphQL per-set card sync, onboarding, startup sync, variant top-up
+    variantSources.ts   Loads each card's stored variant sources + in-use variants
+    variantService.ts   Add / remove a manual variant
+    appSettings.ts      app_settings get/set (catalogue onboarding + re-check timestamps)
     binders.ts cards.ts slots.ts            CRUD for binders/pages, card queries, pocket ops
     organize.ts movePlan.ts                 Auto-organize + physical re-sort plan
     importService.ts collectionService.ts   CSV import apply, owned-collection writes
@@ -63,16 +67,20 @@ src/
     binder/             layout, provision, dnd, stacking, sort, organize (packed sorts),
                         completion, diff (move engine), moveText (phrasing)
     import/             csv (RFC 4180 parser), formats (header detection), resolve (card matching)
-    tcgdex/             api client (6-wide pooled fetch), types, mappers, filter (Pocket exclusion)
-    search.ts currency.ts
+    tcgdex/             api client (pooled REST), graphql client + queries, types, mappers,
+                        filter (Pocket exclusion), variants (merge rules), syncPlan (what's due)
+    search.ts currency.ts throttle.ts catalogueLog.ts ([catalogue] console lines)
   features/             UI, one folder per feature (screens + co-located helpers)
     binders/            list, binder spread (PageGrid, DragOverlay, PageTurnOverlay,
                         ShuffleOverlay), stats, mirror capture, move list
-    cards/              card picker (sets → cards), image cache helpers, placement
+    cards/              card picker (sets → cards), CardFace (image or name/number placeholder),
+                        image cache helpers, placement
+    catalogue/          OnboardingScreen (first-launch download), SyncStatusLine
     checklist/          per-set checklists with optimistic multi-tap toggles
     import/             CSV import flow
   navigation/types.ts   RootStackParamList (typed route params)
   state/uiStore.ts      Zustand: "last placed pocket" signal for the sleeve animation
+  state/syncStore.ts    Zustand: catalogue sync phase + message for onboarding and the status line
 ```
 
 The layering rule: `features/` calls `db/` services, `db/` services call pure
@@ -82,8 +90,10 @@ The layering rule: `features/` calls `db/` services, `db/` services call pure
 
 ### Data model (`src/db/schema.ts`)
 
-- **Catalog (from TCGdex):** `sets` (with `cards_ingested_at`), `cards`
-  (variants, types, and dex numbers stored as JSON), `card_prices` (card_id + variant →
+- **Catalog (from TCGdex):** `sets` (with `cards_ingested_at` = GraphQL-synced,
+  `placeholder_flags`, `variants_checked_at`), `cards` (types, dex numbers, illustrator,
+  and four variant columns: merged `variants`, `flag_variants`, `price_variants`,
+  `manual_variants`, all JSON), `card_prices` (card_id + variant →
   `market_usd`, `fetched_at`; kept separate because prices are volatile).
 - **User data:** `binders` (layout, `sort_strategy`, `visual_theme`, and
   `variant_stacking`; strategy and theme are independent fields) → `pages` → `slots`.
@@ -98,11 +108,20 @@ The layering rule: `features/` calls `db/` services, `db/` services call pure
 App → useDbReady
   1. useMigrations (drizzle/*.sql)                     — blocks UI until done
      (0004 is the one-time step 1 wipe of user data + catalogue)
-  2. ready → render navigation
-  3. background: ingestSets() — look up TCG Pocket set ids (series tcgp), diff the
-     set list without them, fetch details for new sets only, and keep only details
-     that name a non-Pocket series. Lookup fails → skip sync.
+     (0005 adds the step 2 columns and marks every set for re-download)
+  2. not onboarded → OnboardingScreen: runOnboarding()
+       ingestSets() (REST set list, Pocket lookup; fails → Retry screen)
+       → syncSetCards() per set over GraphQL, 4 at a time, resumable
+       → partial failure: Retry / Continue anyway → then runVariantTopUp() in background
+  3. onboarded → render navigation; background runStartupSync():
+       ingestSets() → sync unsynced sets → daily re-check (recent/image-less sets,
+       re-opened top-ups, unpriced cards weekly) → runVariantTopUp()
+  Progress: useSyncStore (SyncStatusLine) + `[catalogue]` console lines (dev).
 ```
+
+ingestSets: look up TCG Pocket set ids (series tcgp), diff the set list without them,
+fetch details for new sets only, and keep only details that name a non-Pocket series.
+Lookup fails → skip sync. Card data is only fetched for sets it let in.
 
 ### Reads: offline-first and reactive
 
@@ -111,15 +130,20 @@ Screens read through Drizzle `useLiveQuery` (BinderList, the binder spread via
 those queries after any write, so the UI never waits on the network. It only
 reflects what is local.
 
-### Card ingestion (lazy, per set)
+### Card data and variants (step 2)
 
 ```
-Picker/Checklist opens set → ensureSetCards(setId)
-  if sets.cards_ingested_at is null (or force ↻):
-    TCGdex set detail → per-card details (pooled, progress callback)
-    → mappers (variants, images, prices) → one transaction upserts cards + card_prices + set
-Images: URIs stored in SQLite, loaded lazily and disk-cached by expo-image.
-Prices: refreshSetPrices re-ingests when older than 24h (PRICE_TTL_MS).
+syncSetCards(setId): GraphQL cards(filters: { id: "<setId>-" }) → keep set.id === setId
+  → mapGraphqlCard → one transaction: upsert cards with
+    variants = mergeVariants(flags, stored price_variants, manual, in-use), set
+    placeholder_flags + cards_ingested_at. Never touches price/manual columns.
+topUpSet(setId) (placeholder-flag sets): REST per-card details → priceVariants()
+  → applyRestDetails(storePrices: false) → variants_checked_at.
+Checklist ↻ → resyncSet (GraphQL + top-up when flagged). Long-press row → manual variant.
+Images: URIs stored in SQLite, loaded lazily and disk-cached by expo-image; CardFace
+shows name + number when there's no image or it fails to load.
+Prices (stats only): refreshSetPrices → REST details → applyRestDetails(storePrices: true)
+when older than 24h (PRICE_TTL_MS). Checklists show no prices.
 ```
 
 ### Writes: user actions
@@ -173,8 +197,9 @@ npx expo install --check         # Expo-SDK version alignment check
   `tsc` remains the type check.
 - Tests cover pure logic only: sort, organize, diff, moveText, stacking,
   layout, dnd, provision, completion, CSV/format/resolve, search, currency, and the
-  TCGdex mappers, api and filter. No UI or DB-service tests. Migration 0004 has its
-  own check: `bash scripts/verify-migration-0004.sh <scratch-dir>`.
+  TCGdex mappers, api, graphql, filter, variants and syncPlan, and throttle. No UI or
+  DB-service tests. Migrations 0004 and 0005 have their own checks:
+  `bash scripts/verify-migration-000{4,5}.sh <scratch-dir>`.
 - **Dependency pitfalls** (from PROGRESS.md and this session):
   - `npm audit fix --force` jumps Expo to 58 and breaks Metro, tsc, and Jest at
     once. Plain `npm audit fix` is safe. The remaining findings (postcss,

@@ -2,7 +2,6 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asc, eq, sql } from 'drizzle-orm';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import * as Haptics from 'expo-haptics';
-import { Image } from 'expo-image';
 import {
   memo,
   useCallback,
@@ -14,6 +13,7 @@ import {
 } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -23,13 +23,22 @@ import {
 
 import { db } from '../../db/client';
 import { adjustOwnedQuantity, toggleOwned } from '../../db/collectionService';
-import { ensureSetCards } from '../../db/ingest';
-import { getDisplayCurrency, getRate } from '../../db/ratesService';
-import { cardPrices, cards, collection, sets } from '../../db/schema';
+import { resyncSet } from '../../db/catalogueSync';
+import { cards, collection, sets } from '../../db/schema';
 import type { CardRow } from '../../db/schema';
-import { convertUsd, formatCurrency } from '../../lib/currency';
+import {
+  addManualVariant,
+  removeManualVariant,
+  VariantInUseError,
+} from '../../db/variantService';
+import { isIncompleteSet } from '../../lib/tcgdex/syncPlan';
+import { addableVariants } from '../../lib/tcgdex/variants';
+import { useSetBusy } from '../../state/syncStore';
 import type { RootStackParamList } from '../../navigation/types';
-import { CARD_IMAGE_CACHE_POLICY } from '../cards/images';
+import { SyncStatusLine } from '../catalogue/SyncStatusLine';
+import { OptionSheet } from './OptionSheet';
+import type { SheetSpec } from './OptionSheet';
+import { CardFace } from '../cards/CardFace';
 import { variantLabel } from '../cards/variantLabels';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Checklist'>;
@@ -45,9 +54,9 @@ interface RowProps {
   variant: string;
   /** Owned quantity; undefined = not owned. */
   quantity: number | undefined;
-  priceLabel: string | null;
   onToggle: (cardId: string, variant: string) => void;
   onAdjust: (cardId: string, variant: string, delta: number) => void;
+  onVariantMenu: (card: CardRow) => void;
 }
 
 /** Memoized: a toggle re-renders only the row it changed. */
@@ -55,21 +64,23 @@ const ChecklistRow = memo(function ChecklistRow({
   card,
   variant,
   quantity,
-  priceLabel,
   onToggle,
   onAdjust,
+  onVariantMenu,
 }: RowProps) {
   const owned = quantity !== undefined;
   return (
     <Pressable
       style={[styles.row, owned && styles.rowOwned]}
       onPress={() => onToggle(card.id, variant)}
+      onLongPress={() => onVariantMenu(card)}
     >
-      <Image
-        source={{ uri: card.imageSmallUri ?? undefined }}
+      <CardFace
+        name={card.name}
+        number={card.number}
+        imageUri={card.imageSmallUri ?? card.imageLargeUri}
         style={styles.thumb}
         contentFit="contain"
-        cachePolicy={CARD_IMAGE_CACHE_POLICY}
       />
       <View style={styles.rowText}>
         <Text style={styles.rowTitle} numberOfLines={1}>
@@ -78,9 +89,9 @@ const ChecklistRow = memo(function ChecklistRow({
         <Text style={styles.rowSub}>
           {variantLabel(variant)}
           {card.rarity ? ` · ${card.rarity}` : ''}
+          {card.manualVariants.includes(variant) ? ' · added by you' : ''}
         </Text>
       </View>
-      {priceLabel !== null && <Text style={styles.price}>{priceLabel}</Text>}
       {owned ? (
         <View style={styles.qtyControls}>
           <Pressable hitSlop={8} onPress={() => onAdjust(card.id, variant, -1)}>
@@ -105,60 +116,16 @@ const ChecklistRow = memo(function ChecklistRow({
  */
 export function ChecklistScreen({ route, navigation }: Props) {
   const { setId } = route.params;
-  const [downloading, setDownloading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  /** Being downloaded or topped up, by ↻ or the background sync. */
+  const busy = useSetBusy(setId);
   /** key → optimistic quantity (null = not owned); cleared on DB echo. */
   const [overrides, setOverrides] = useState<Map<string, number | null>>(new Map());
-  const [priceLabels, setPriceLabels] = useState<Map<string, string>>(new Map());
-
-  useEffect(() => {
-    let cancelled = false;
-    ensureSetCards(db, setId)
-      .catch(() => {}) // offline with an ingested set still works below
-      .finally(() => !cancelled && setDownloading(false));
-    return () => {
-      cancelled = true;
-    };
-  }, [setId]);
-
-  // Prices in the display currency; loaded once per visit (prices only
-  // change on TTL refresh, not while tapping through a checklist).
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      const [rows, currency] = await Promise.all([
-        db
-          .select({
-            cardId: cardPrices.cardId,
-            variant: cardPrices.variant,
-            marketUsd: cardPrices.marketUsd,
-          })
-          .from(cardPrices)
-          .innerJoin(cards, eq(cardPrices.cardId, cards.id))
-          .where(eq(cards.setId, setId)),
-        getDisplayCurrency(db),
-      ]);
-      const rate = (await getRate(db, currency)) ?? 1;
-      if (cancelled) return;
-      setPriceLabels(
-        new Map(
-          rows.map((r) => [
-            `${r.cardId}::${r.variant}`,
-            formatCurrency(convertUsd(r.marketUsd, rate), currency),
-          ]),
-        ),
-      );
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [setId, downloading, refreshing]);
 
   const { data: setRows } = useLiveQuery(
     db.select().from(sets).where(eq(sets.id, setId)),
     [setId],
   );
-  const { data: cardRows } = useLiveQuery(
+  const { data: cardRows, updatedAt: cardsLoadedAt } = useLiveQuery(
     db
       .select()
       .from(cards)
@@ -276,6 +243,41 @@ export function ChecklistScreen({ route, navigation }: Props) {
     [dbOwnedByKey, enqueueWrite],
   );
 
+  // Long-press: add a variant TCGdex doesn't list, or remove one you added.
+  // Three steps to add: long-press → Add variant → pick.
+  const [sheet, setSheet] = useState<SheetSpec | null>(null);
+  const onVariantMenu = useCallback((card: CardRow) => {
+    const fail = (e: unknown) =>
+      Alert.alert(
+        e instanceof VariantInUseError ? "Can't remove variant" : 'Variant not changed',
+        e instanceof VariantInUseError
+          ? 'You own or have placed this variant. Remove it from your collection and binders first.'
+          : e instanceof Error
+            ? e.message
+            : String(e),
+      );
+    const addSheet: SheetSpec = {
+      title: 'Add variant',
+      message: "For variants TCGdex doesn't list.",
+      options: addableVariants(card.variants).map((variant) => ({
+        label: variantLabel(variant),
+        onPress: () => void addManualVariant(db, card.id, variant).catch(fail),
+      })),
+    };
+    setSheet({
+      title: `#${card.number} ${card.name}`,
+      options: [
+        // Defer so the first sheet finishes closing before the next opens.
+        { label: 'Add variant', onPress: () => setTimeout(() => setSheet(addSheet), 0) },
+        ...card.manualVariants.map((variant) => ({
+          label: `Remove ${variantLabel(variant)}`,
+          destructive: true,
+          onPress: () => void removeManualVariant(db, card.id, variant).catch(fail),
+        })),
+      ],
+    });
+  }, []);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       title: setRows?.[0]?.name ?? 'Checklist',
@@ -288,46 +290,69 @@ export function ChecklistScreen({ route, navigation }: Props) {
           )}
           <Pressable
             hitSlop={10}
-            disabled={refreshing}
-            // Re-download the set's card data (variants, images, prices).
+            disabled={busy}
+            accessibilityLabel={busy ? 'Syncing this set' : 'Re-sync this set'}
+            // Re-download the set's cards (plus the variant top-up if needed).
             onPress={() => {
-              setRefreshing(true);
-              void ensureSetCards(db, setId, { force: true })
-                .catch(() => {})
-                .finally(() => setRefreshing(false));
+              void resyncSet(db, setId).catch((e: unknown) =>
+                Alert.alert('Re-sync failed', e instanceof Error ? e.message : String(e)),
+              );
             }}
           >
-            <Text style={[styles.headerRefresh, refreshing && styles.headerRefreshOff]}>
+            <Text style={[styles.headerRefresh, busy && styles.headerRefreshOff]}>
               ↻
             </Text>
           </Pressable>
         </View>
       ),
     });
-  }, [navigation, setRows, ownedCount, entries.length, refreshing, setId]);
+  }, [navigation, setRows, ownedCount, entries.length, busy, setId]);
 
-  if (downloading && entries.length === 0) {
+  // Wait for the first read, so an already-downloaded set doesn't flash
+  // the "not downloaded" message.
+  if (cardsLoadedAt === undefined) {
     return (
       <View style={styles.center}>
         <ActivityIndicator />
-        <Text style={styles.hint}>Downloading set…</Text>
       </View>
     );
   }
   if (entries.length === 0) {
     return (
       <View style={styles.center}>
+        {busy && <ActivityIndicator />}
         <Text style={styles.hint}>
-          This set needs to be downloaded once — connect to the internet and retry.
+          {busy
+            ? 'Syncing this set in the background…'
+            : "This set hasn't downloaded yet. It will retry next time the app starts."}
         </Text>
       </View>
     );
   }
 
+  const listedTotal = setRows?.[0]?.total ?? 0;
+  const cardCount = cardRows?.length ?? 0;
+
   return (
-    <FlatList
-      style={styles.list}
-      data={entries}
+    <View style={styles.screen}>
+      <SyncStatusLine />
+      {busy && (
+        <View style={styles.notice}>
+          <ActivityIndicator size="small" />
+          <Text style={styles.noticeText}>Syncing this set in the background…</Text>
+        </View>
+      )}
+      {isIncompleteSet(cardCount, listedTotal) && (
+        <View style={styles.notice}>
+          <Text style={styles.noticeText}>
+            TCGdex lists {cardCount} of {listedTotal} cards so far. The rest will appear when
+            TCGdex adds them.
+          </Text>
+        </View>
+      )}
+      <FlatList
+        style={styles.list}
+        data={entries}
       keyExtractor={(e) => `${e.card.id}::${e.variant}`}
       renderItem={({ item }) => {
         const key = `${item.card.id}::${item.variant}`;
@@ -336,17 +361,29 @@ export function ChecklistScreen({ route, navigation }: Props) {
             card={item.card}
             variant={item.variant}
             quantity={quantityFor(key)}
-            priceLabel={priceLabels.get(key) ?? null}
             onToggle={onToggle}
             onAdjust={onAdjust}
+            onVariantMenu={onVariantMenu}
           />
         );
       }}
-    />
+      />
+      <OptionSheet sheet={sheet} onClose={() => setSheet(null)} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  screen: { flex: 1, backgroundColor: '#fff' },
+  notice: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    backgroundColor: '#fff8e1',
+  },
+  noticeText: { flex: 1, fontSize: 12, color: '#6d5d00' },
   list: { backgroundColor: '#fff' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12, padding: 24 },
   hint: { color: '#999', textAlign: 'center' },
@@ -366,7 +403,6 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, gap: 2 },
   rowTitle: { fontSize: 14, fontWeight: '500' },
   rowSub: { fontSize: 12, color: '#999' },
-  price: { fontSize: 12, color: '#78909c', fontVariant: ['tabular-nums'] },
   checkbox: {
     width: 22,
     height: 22,
